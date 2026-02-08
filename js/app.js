@@ -34,9 +34,14 @@ let scanStartTime = null;
 let frameCount = 0;
 let dogDetectionCount = 0;
 
-// Scan mode: 'continuous', '30', '60'
+// Scan mode: 'continuous', '15', '30', '60'
 let scanMode = 'continuous';
 let scanDurationLimit = 0; // 0 = continuous, else ms
+
+// Detection persistence — keep last known dog box for N frames when detection drops
+let lastDogDetection = null;
+let framesSinceLastDog = 999;
+const DOG_PERSISTENCE_FRAMES = 15; // keep using last box for up to 15 frames (~0.5s)
 
 // Energy tracking for chart
 let energyData = [];
@@ -406,8 +411,19 @@ async function processFrame() {
         // Detect objects using COCO-SSD
         const predictions = await cocoModel.detect(video);
 
-        // Filter for dogs only (COCO class: "dog")
-        const dogs = predictions.filter(p => p.class === 'dog' && p.score > 0.3);
+        // Accept "dog" class at lower threshold (0.15)
+        // Also accept "cat" (small dogs get misclassified) and other animals at even lower threshold
+        const DOG_CLASSES = ['dog'];
+        const ANIMAL_FALLBACK = ['cat', 'bear', 'horse', 'cow', 'sheep'];
+        let dogs = predictions.filter(p => DOG_CLASSES.includes(p.class) && p.score > 0.15);
+
+        // If no direct dog detection, check animal fallbacks (COCO-SSD sometimes confuses breeds)
+        if (dogs.length === 0) {
+            const animalFallback = predictions.filter(p => ANIMAL_FALLBACK.includes(p.class) && p.score > 0.25);
+            if (animalFallback.length > 0) {
+                dogs = animalFallback;
+            }
+        }
 
         ctx.clearRect(0, 0, overlay.width, overlay.height);
 
@@ -418,11 +434,19 @@ async function processFrame() {
             barkAssess = barkEngine._quickAssess();
         }
 
+        // Detection persistence: if no dog found this frame, use last known position briefly
+        if (dogs.length === 0 && lastDogDetection && framesSinceLastDog < DOG_PERSISTENCE_FRAMES) {
+            dogs = [lastDogDetection];
+            framesSinceLastDog++;
+        }
+
         if (dogs.length > 0) {
             dogDetectionCount++;
+            framesSinceLastDog = 0;
 
             // Use the highest-confidence dog detection
             const dog = dogs.reduce((best, d) => d.score > best.score ? d : best, dogs[0]);
+            lastDogDetection = dog;
             const [bx, by, bw, bh] = dog.bbox;
 
             // Process through emotion engine
@@ -531,17 +555,23 @@ async function processFrame() {
 
         } else {
             // No dog detected
+            framesSinceLastDog++;
             document.getElementById('rtEmotion').textContent = '--';
             document.getElementById('rtConfidence').textContent = '--';
             document.getElementById('rtIntensity').textContent = '--';
 
-            // Still process bark even without visual detection
+            // Show what model IS seeing for debugging
+            const detected = predictions.filter(p => p.score > 0.2).map(p => `${p.class} ${Math.round(p.score * 100)}%`).join(', ');
+
             if (barkAssess && barkAssess.isVocalizing) {
                 document.getElementById('translationMessage').textContent =
-                    'I can hear your dog but can\'t see them. Point the camera at your dog.';
+                    'I can hear your dog but can\'t see them. Move the camera closer or adjust the angle.';
+            } else if (detected) {
+                document.getElementById('translationMessage').textContent =
+                    'Searching for dog... Move closer, adjust angle, or ensure good lighting. (Seeing: ' + detected + ')';
             } else {
                 document.getElementById('translationMessage').textContent =
-                    'Looking for your dog... Make sure they\'re in frame.';
+                    'Looking for your dog... Move the camera closer and ensure good lighting.';
             }
         }
 
@@ -569,10 +599,13 @@ async function startScan() {
     frameCount = 0;
     dogDetectionCount = 0;
     energyData = [];
+    lastDogDetection = null;
+    framesSinceLastDog = 999;
     scanStartTime = performance.now();
 
     // Set scan duration from mode
-    if (scanMode === '30') scanDurationLimit = 30000;
+    if (scanMode === '15') scanDurationLimit = 15000;
+    else if (scanMode === '30') scanDurationLimit = 30000;
     else if (scanMode === '60') scanDurationLimit = 60000;
     else scanDurationLimit = 0;
 
@@ -721,13 +754,20 @@ function renderFriendlyReport(emotionReport, translationReport, barkReport, ener
     const wbColor = wellbeing >= 65 ? '#7cb342' : wellbeing <= 35 ? '#f44336' : '#ffc107';
     const wbText = wellbeing >= 65 ? 'Good' : wellbeing <= 35 ? 'Needs attention' : 'Mixed';
 
-    // Posture plain text
+    // Posture in proper K9 terminology
     const postureText = {
-        standing: 'Standing up',
-        sitting: 'Sitting down',
-        lying: 'Lying down',
-        crouching: 'Crouched low',
+        stand: 'Stand',
+        sit: 'Sit',
+        down: 'Down',
+        crouch: 'Crouch',
         unknown: 'Not detected'
+    };
+    const postureDesc = {
+        stand: 'Your dog was standing on all fours \u2014 alert and upright.',
+        sit: 'Your dog was in a sit position \u2014 hindquarters on the ground, front upright.',
+        down: 'Your dog was in a down position \u2014 lying on the ground, settled.',
+        crouch: 'Your dog was crouched low \u2014 could be a play bow, showing submission, or feeling cautious.',
+        unknown: 'Could not determine your dog\'s position clearly.'
     };
 
     // Activity level
@@ -756,7 +796,7 @@ function renderFriendlyReport(emotionReport, translationReport, barkReport, ener
 
     html += `<div class="friendly-item info">
         <div class="friendly-item-title">Position: ${postureText[posture] || posture}</div>
-        <div class="friendly-item-text">Your dog was mostly ${posture === 'lying' ? 'lying down' : posture === 'sitting' ? 'sitting' : posture === 'crouching' ? 'crouched low' : 'standing'} during the scan.</div>
+        <div class="friendly-item-text">${postureDesc[posture] || postureDesc.unknown}</div>
     </div>`;
 
     html += `<div class="friendly-item info">
@@ -806,11 +846,11 @@ function renderFriendlyReport(emotionReport, translationReport, barkReport, ener
         </div>`;
     }
 
-    // Vocalization types
+    // Vocalization types — only show actual dog sounds (not ambient)
     const vocalTypes = barkReport.vocalizations.typeDistribution || {};
-    if (vocalTypes.growl) html += `<div class="friendly-item urgent"><div class="friendly-item-title">Growling detected</div><div class="friendly-item-text">Your dog was growling ${vocalTypes.growl} time${vocalTypes.growl > 1 ? 's' : ''}. This usually means they want space or feel uncomfortable.</div></div>`;
-    if (vocalTypes.whine) html += `<div class="friendly-item caution"><div class="friendly-item-title">Whining detected</div><div class="friendly-item-text">Your dog was whining. Dogs whine when they need something, are in pain, or feel anxious.</div></div>`;
-    if (vocalTypes.howl) html += `<div class="friendly-item info"><div class="friendly-item-title">Howling detected</div><div class="friendly-item-text">Your dog howled during the scan. Howling is often a social call \u2014 your dog may be looking for company or responding to sounds.</div></div>`;
+    if (vocalTypes.growl && vocalTypes.growl > 2) html += `<div class="friendly-item urgent"><div class="friendly-item-title">Growling detected</div><div class="friendly-item-text">Your dog was growling. This usually means they want space or feel uncomfortable.</div></div>`;
+    if (vocalTypes.whine && vocalTypes.whine > 2) html += `<div class="friendly-item caution"><div class="friendly-item-title">Whining detected</div><div class="friendly-item-text">Your dog was whining. Dogs whine when they need something, are in pain, or feel anxious.</div></div>`;
+    if (vocalTypes.howl && vocalTypes.howl > 2) html += `<div class="friendly-item info"><div class="friendly-item-title">Howling detected</div><div class="friendly-item-text">Your dog howled during the scan. Howling is often a social call \u2014 your dog may be looking for company or responding to sounds.</div></div>`;
 
     html += '</div>';
 

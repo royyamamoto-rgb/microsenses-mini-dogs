@@ -542,7 +542,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a0e; colo
 .confidence-note { margin-top: 8px; padding: 8px 12px; background: rgba(212,160,23,0.08); border: 1px solid rgba(212,160,23,0.15); border-radius: 6px; font-size: 10px; color: #aaa; line-height: 1.5; }
 
 /* ── Posture metric ── */
-.metric-card.posture .value { text-transform: capitalize; }
+.metric-card.posture .value { text-transform: uppercase; font-size: 18px; color: #82b1ff; }
 
 /* ── Emotion metrics 4-column ── */
 .realtime-metrics { grid-template-columns: repeat(4, 1fr) !important; }

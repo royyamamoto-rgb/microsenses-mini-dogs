@@ -51,9 +51,13 @@ class DogEmotionEngine {
         this.positionHistory = [];
         this.sizeHistory = [];
 
-        // Posture tracking
+        // Posture tracking — uses proper K9 terminology
+        // stand = upright on all fours
+        // sit = hindquarters on ground, front up
+        // down = lying on ground (sphinx or flat)
+        // crouch = lowered body (play bow, fear, submission)
         this.postureHistory = [];
-        this.currentPosture = 'unknown'; // standing, sitting, lying, crouching
+        this.currentPosture = 'unknown';
 
         // Detected signals (for explanation)
         this.detectedSignals = [];
@@ -164,12 +168,22 @@ class DogEmotionEngine {
         return emotion;
     }
 
-    // ── Posture Estimation ──
-    // Based on bounding box aspect ratio:
-    // Standing dog: width ~1.2-1.8x height (horizontal body)
-    // Sitting dog: width ~0.6-1.0x height (more vertical)
-    // Lying down: width ~2.0+ height (very wide, short)
-    // Crouching: rapid height decrease from standing
+    // ── Posture Estimation (K9 Terminology) ──
+    // Based on bounding box aspect ratio (width / height):
+    //
+    // STAND: Dog upright on all fours. Bounding box wider than tall.
+    //   - Side view: AR ~1.3-1.8 (body is horizontal rectangle)
+    //   - Front view: AR ~0.7-1.2
+    //
+    // SIT: Hindquarters on ground, front legs upright. Box becomes taller.
+    //   - Side view: AR ~0.6-1.0 (dog is more square/vertical)
+    //   - Front view: AR ~0.5-0.9
+    //
+    // DOWN: Lying on ground (sphinx or flat). Box very wide, very short.
+    //   - Side view: AR ~1.5+ (wide low rectangle)
+    //   - Also check: low vertical position in frame + low box height relative to width
+    //
+    // CROUCH: Rapid height decrease — play bow, fear, or submission
 
     _estimatePosture() {
         if (this.frameHistory.length < 3) return;
@@ -177,26 +191,48 @@ class DogEmotionEngine {
         const curr = this.frameHistory[this.frameHistory.length - 1];
         const ar = curr.aspectRatio;
 
-        let posture = 'standing';
-        if (ar >= 2.0) {
-            posture = 'lying';
-        } else if (ar >= 1.2 && ar < 2.0) {
-            posture = 'standing';
-        } else if (ar >= 0.5 && ar < 1.2) {
-            posture = 'sitting';
-        } else if (ar < 0.5) {
-            // Very tall and narrow — likely sitting upright or begging
-            posture = 'sitting';
+        // Height-to-width analysis for better down detection
+        // A dog in "down" has a significantly lower height relative to earlier frames
+        let avgHeight = curr.box.height;
+        if (this.frameHistory.length >= 15) {
+            const recentHeights = this.frameHistory.slice(-15).map(f => f.box.height);
+            avgHeight = recentHeights.reduce((a, b) => a + b, 0) / recentHeights.length;
         }
 
-        // Check for crouching — rapid decrease in height from standing
+        let posture = 'stand';
+
+        if (ar >= 1.8) {
+            // Very wide rectangle — definitely in down position
+            posture = 'down';
+        } else if (ar >= 1.4) {
+            // Wide rectangle — could be down or stand depending on height
+            // Check if height is low relative to width (down) or normal (stand)
+            // A standing dog has proportional height; a down dog is squished flat
+            const widthToHeight = curr.box.width / Math.max(1, curr.box.height);
+            posture = widthToHeight >= 1.5 ? 'down' : 'stand';
+        } else if (ar >= 1.0 && ar < 1.4) {
+            // Roughly square — standing (front view) or transitioning
+            posture = 'stand';
+        } else if (ar >= 0.5 && ar < 1.0) {
+            // Taller than wide — sitting (hindquarters down, front up)
+            posture = 'sit';
+        } else if (ar < 0.5) {
+            // Very tall and narrow — sitting upright or begging
+            posture = 'sit';
+        }
+
+        // Check for crouch — rapid decrease in height from stand
         if (this.frameHistory.length >= 5) {
             const prev5 = this.frameHistory.slice(-5);
-            const heightDrop = prev5[0].box.height - curr.box.height;
             const heightRatio = curr.box.height / Math.max(1, prev5[0].box.height);
             if (heightRatio < 0.7 && prev5[0].aspectRatio < 1.5) {
-                posture = 'crouching';
+                posture = 'crouch';
             }
+        }
+
+        // Stillness + wide AR = more likely down than stand
+        if (this.patterns.stillness > 10 && ar >= 1.3) {
+            posture = 'down';
         }
 
         // Track posture changes
@@ -218,15 +254,18 @@ class DogEmotionEngine {
             ? this.movementHistory.slice(-30).reduce((s, m) => s + m.speed, 0) / Math.min(30, this.movementHistory.length)
             : 0;
 
-        // Posture signal
+        // Posture signal (K9 terminology)
         if (this.currentPosture !== 'unknown') {
+            const postureLabels = {
+                stand: 'Stand — dog is upright on all fours, alert and ready',
+                sit: 'Sit — hindquarters on ground, attentive or waiting',
+                down: 'Down — lying on the ground, resting or settled',
+                crouch: 'Crouch — lowered body, could be play bow, submission, or fear'
+            };
             this.detectedSignals.push({
                 type: 'posture',
-                signal: `Body posture: ${this.currentPosture}`,
-                detail: this.currentPosture === 'standing' ? 'Dog is upright and active' :
-                        this.currentPosture === 'sitting' ? 'Dog is seated — attentive or resting' :
-                        this.currentPosture === 'lying' ? 'Dog is lying down — relaxed or tired' :
-                        'Dog has lowered body — could be play bow, submission, or fear',
+                signal: `Position: ${this.currentPosture.toUpperCase()}`,
+                detail: postureLabels[this.currentPosture] || 'Unknown posture',
                 source: 'bounding box aspect ratio'
             });
         }
@@ -436,7 +475,7 @@ class DogEmotionEngine {
         this.patterns.restlessness = speedVariance > 20 ? Math.round(speedVariance / 4) : 0;
 
         // ── Crouching ──
-        this.patterns.crouching = this.currentPosture === 'crouching' ? 1 : 0;
+        this.patterns.crouching = this.currentPosture === 'crouch' ? 1 : 0;
     }
 
     _computeVariance(arr) {
@@ -458,23 +497,23 @@ class DogEmotionEngine {
             ? this.movementHistory.slice(-30).reduce((s, m) => s + m.speed, 0) / Math.min(30, this.movementHistory.length)
             : 0;
 
-        // ── Posture-based scoring (NEW) ──
+        // ── Posture-based scoring (K9 positions) ──
         switch (this.currentPosture) {
-            case 'lying':
-                scores.calm += 20;
+            case 'down':
+                scores.calm += 25;
                 scores.sad += 8;
                 scores.fearful += 3;
                 break;
-            case 'sitting':
+            case 'sit':
                 scores.calm += 12;
                 scores.alert += 10;
                 scores.curious += 5;
                 break;
-            case 'standing':
+            case 'stand':
                 scores.alert += 8;
                 scores.happy += 5;
                 break;
-            case 'crouching':
+            case 'crouch':
                 scores.fearful += 20;
                 scores.playful += 15; // Could be play bow
                 scores.stressed += 10;
@@ -827,7 +866,7 @@ class DogEmotionEngine {
         }
 
         // REST need
-        if (primary === 'calm' && this.currentPosture === 'lying' && patterns.stillness > 15) {
+        if (primary === 'calm' && this.currentPosture === 'down' && patterns.stillness > 15) {
             this.currentNeeds.push({
                 need: 'Rest',
                 urgency: 'low',
