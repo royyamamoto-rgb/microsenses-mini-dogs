@@ -307,6 +307,26 @@ function updateScanReadings(emotionAssess, barkAssess) {
     }
 }
 
+// ── K9 Action Panel Update ──
+function updateActionPanel(emotionAssess) {
+    const primaryEl = document.getElementById('actionPrimary');
+    const listEl = document.getElementById('actionList');
+    if (!primaryEl || !listEl) return;
+
+    const action = emotionAssess.currentAction || 'observing';
+    const actions = emotionAssess.activeActions || [];
+
+    primaryEl.textContent = action.replace(/-/g, ' ');
+
+    if (actions.length > 0) {
+        listEl.innerHTML = actions.map(a => {
+            return `<span class="action-chip ${a.category}" title="${a.desc}">${a.action.replace(/-/g, ' ')}</span>`;
+        }).join('');
+    } else {
+        listEl.innerHTML = '<span class="action-chip system">observing</span>';
+    }
+}
+
 // ── Live Indicator Chips ──
 function updateLiveIndicators(emotion, barkAssess, completion) {
     const el = document.getElementById('indicatorChips');
@@ -547,6 +567,9 @@ async function processFrame() {
                 confExpEl.style.display = 'block';
             }
 
+            // K9 Action display
+            updateActionPanel(emotionAssess);
+
             // Live Scan Readings — actual measured data
             updateScanReadings(emotionAssess, barkAssess);
 
@@ -629,6 +652,7 @@ async function startScan() {
     // Show UI elements
     document.getElementById('translationPanel').style.display = 'block';
     document.getElementById('emotionMetrics').style.display = 'grid';
+    document.getElementById('actionPanel').style.display = 'block';
     document.getElementById('scanReadingsPanel').style.display = 'block';
     document.getElementById('energyMetrics').style.display = 'grid';
     document.getElementById('formulaBox').style.display = 'block';
@@ -820,6 +844,98 @@ function renderFriendlyReport(emotionReport, translationReport, barkReport, ener
     }
 
     html += '</div>';
+
+    // ── K9 Actions Detected ──
+    const actionSummary = emotionReport.actionSummary;
+    if (actionSummary && actionSummary.topActions && actionSummary.topActions.length > 0) {
+        html += `<div class="friendly-section">
+            <div class="friendly-section-title"><span class="fs-icon">\u{1F415}</span> K9 Actions Detected</div>
+            <div class="friendly-item info">
+                <div class="friendly-item-title">Primary Action: ${(actionSummary.primary || 'observing').replace(/-/g, ' ').toUpperCase()}</div>
+                <div class="friendly-item-text">${actionSummary.totalUniqueActions} different actions were detected during the scan.</div>
+            </div>
+            <div class="action-report-grid">`;
+
+        // Action description map for the report
+        const actionDescriptions = {
+            'stationary': 'Holding position, not moving',
+            'slow-movement': 'Shifting weight or making small adjustments',
+            'walking': 'Walking at a normal pace',
+            'trotting': 'Moving at a trot — moderate speed gait',
+            'running': 'Running at speed',
+            'sprinting': 'Full sprint — maximum speed',
+            'jumping-up': 'Jumping upward — excitement or greeting',
+            'landing': 'Landing after a jump',
+            'bouncing': 'Bouncing up and down — playful or excited',
+            'repeated-jumping': 'Jumping repeatedly — wants attention',
+            'hopping': 'Light bouncy movement, often playful',
+            'standing': 'Upright on all four paws',
+            'sitting': 'In a sit — hindquarters on ground',
+            'lying-down': 'In a down position — body on the ground',
+            'crouching': 'Body lowered — play bow, submission, or caution',
+            'begging': 'Sitting up tall — begging or "sit pretty"',
+            'sitting-down': 'Transitioning from stand to sit',
+            'lying-down-from-stand': 'Going from standing to down',
+            'settling-down': 'Settling from sit into down',
+            'getting-up': 'Getting up from lying down',
+            'standing-up': 'Standing up from sit',
+            'lowering-body': 'Dropping into a crouch or play bow',
+            'approaching': 'Coming closer — seeking attention',
+            'retreating': 'Moving away — avoidance or discomfort',
+            'lunging': 'Sudden forward lunge',
+            'backing-up': 'Slowly backing away',
+            'following': 'Moving in a consistent direction',
+            'play-bow': 'Play bow! Universal "let\'s play!" invitation',
+            'zoomies': 'ZOOMIES! Running wildly — pure joy!',
+            'chase-play': 'Chase behavior — running back and forth',
+            'pouncing': 'Pouncing forward — playful attack',
+            'shaking-off': 'Full body shake — often after stress or getting wet',
+            'rolling': 'Rolling over — playful or scratching back',
+            'stretching': 'Stretching out — loosening up after rest',
+            'digging': 'Digging motion — pawing at something',
+            'crawling': 'Army crawl — low to the ground, moving slowly',
+            'scratching': 'Repetitive localized scratching movement',
+            'head-tilting': 'Tilting head — processing a sound or curious',
+            'freeze': 'Alert freeze — suddenly stopped, locked on something',
+            'startled': 'Startle response — reacted suddenly',
+            'sniffing': 'Slow deliberate movement — likely sniffing',
+            'looking-around': 'Scanning the environment',
+            'spinning': 'Spinning in circles',
+            'pacing': 'Pacing back and forth — anxious or needs something',
+            'restless': 'Can\'t settle, keeps changing position',
+            'nesting': 'Circling before lying down — finding comfort',
+            'guarding': 'Alert guard stance — standing still and watching',
+            'tail-wagging': 'Tail wagging detected — generally positive',
+            'tail-wagging-fast': 'Fast tail wagging — very happy or excited',
+            'cowering': 'Crouched low and backing away — fearful',
+            'freezing-fearful': 'Fear freeze — crouched and completely still',
+            'barking': 'Barking — communicating vocally',
+            'growling': 'Growling — warning or discomfort',
+            'whining': 'Whining — wants something or in distress',
+            'howling': 'Howling — social call or responding to sounds',
+            'yelping': 'Yelping — pain or surprise',
+            'rapid-barking': 'Rapid-fire barking — high urgency',
+            'intermittent-barking': 'Occasional barking — alert or demand',
+            'resting': 'Resting quietly — settled and comfortable',
+            'sleeping': 'Possibly sleeping — very still'
+        };
+
+        // Filter out generic locomotion/posture that overlap with primary
+        const skipInGrid = ['observing'];
+        actionSummary.topActions.forEach(([action, count]) => {
+            if (skipInGrid.includes(action)) return;
+            const desc = actionDescriptions[action] || action.replace(/-/g, ' ');
+            const frames = emotionReport.framesAnalyzed || 1;
+            const pct = Math.round((count / frames) * 100);
+            html += `<div class="action-report-item">
+                <div class="action-report-name">${action.replace(/-/g, ' ')}</div>
+                <div class="action-report-desc">${desc}</div>
+                <div class="action-report-count">Detected ${pct}% of scan</div>
+            </div>`;
+        });
+
+        html += '</div></div>';
+    }
 
     // ── Sound Check ──
     html += `<div class="friendly-section">
@@ -1126,6 +1242,7 @@ document.getElementById('btnNewScan').addEventListener('click', () => {
     document.getElementById('signalsPanel').style.display = 'none';
     document.getElementById('needsPanel').style.display = 'none';
     document.getElementById('scanReadingsPanel').style.display = 'none';
+    document.getElementById('actionPanel').style.display = 'none';
     document.getElementById('scanModeSelector').style.display = 'block';
     modeBadge.style.display = 'none';
     startScan();
