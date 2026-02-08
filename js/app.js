@@ -618,9 +618,83 @@ async function processFrame() {
     if (running) requestAnimationFrame(processFrame);
 }
 
+// ── Reset UI Content ──
+// Clears all text/values from the previous scan so stale data never persists
+function resetUIContent() {
+    // Real-time emotion metrics
+    document.getElementById('rtEmotion').textContent = '--';
+    document.getElementById('rtEmotion').style.color = '';
+    document.getElementById('rtConfidence').textContent = '--';
+    document.getElementById('rtIntensity').textContent = '--';
+    document.getElementById('rtPosture').textContent = '--';
+
+    // 369 energy metrics
+    document.getElementById('rtEnergy').textContent = '--';
+    document.getElementById('rtVibration').textContent = '--';
+    document.getElementById('rtFrequency').textContent = '--';
+
+    // Translation panel
+    document.getElementById('translationMessage').textContent = 'Observing your dog...';
+    document.getElementById('translationScience').textContent = '';
+    document.getElementById('translationRecommendation').textContent = '';
+    document.getElementById('translationConfidence').textContent = '';
+
+    // K9 action panel
+    document.getElementById('actionPrimary').textContent = 'observing';
+    document.getElementById('actionList').innerHTML = '';
+
+    // Live scan readings
+    const readingIds = ['rdMovSpeed','rdBodyW','rdBodyH','rdAspect','rdSizeChange','rdAccel',
+                        'rdHoriz','rdVert','rdArea','rdStillness','rdAudioLvl','rdAudioFreq',
+                        'rdBarkRate','rdFrames'];
+    readingIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '0';
+    });
+    const patternsEl = document.getElementById('rdActivePatterns');
+    if (patternsEl) patternsEl.innerHTML = '';
+
+    // Reading items — remove active highlights
+    document.querySelectorAll('.reading-item').forEach(item => item.classList.remove('active'));
+
+    // Live indicators
+    document.getElementById('indicatorChips').innerHTML = '<span class="ind-chip neutral">MONITORING...</span>';
+
+    // Bark status
+    document.getElementById('barkText').textContent = 'Microphone: Initializing...';
+    document.getElementById('barkStatus').className = 'bark-status';
+
+    // Signals and needs panels
+    document.getElementById('signalsContent').innerHTML = '';
+    document.getElementById('needsContent').innerHTML = '';
+
+    // Confidence explanation
+    const confExp = document.getElementById('confidenceExplanation');
+    if (confExp) { confExp.textContent = ''; confExp.style.display = 'none'; }
+
+    // Results report — clear previous scan report
+    document.getElementById('friendlyReport').innerHTML = '';
+    document.getElementById('emotionResultsSection').innerHTML = '';
+    document.getElementById('translationResultsSection').innerHTML = '';
+    document.getElementById('barkResultsSection').innerHTML = '';
+    document.getElementById('energyResultsSection').innerHTML = '';
+
+    // Scan info
+    document.getElementById('scanDurationDisplay').textContent = '--';
+    document.getElementById('scanFrames').textContent = '--';
+    document.getElementById('scanDetections').textContent = '--';
+    document.getElementById('scanCycles').textContent = '--';
+
+    // Timer
+    timerValue.textContent = '0:00';
+}
+
 // ── Start Scan ──
 async function startScan() {
     setStatus('Starting camera...', 'loading');
+
+    // Reset all UI content from any previous scan
+    resetUIContent();
 
     const ok = await startCamera();
     if (!ok) return;
@@ -1248,7 +1322,8 @@ btnStart.addEventListener('click', startScan);
 btnStop.addEventListener('click', stopScan);
 document.getElementById('btnNewScan').addEventListener('click', () => {
     resultsPanel.classList.remove('active');
-    // Reset UI
+
+    // Reset all UI panel visibility
     document.getElementById('translationPanel').style.display = 'none';
     document.getElementById('emotionMetrics').style.display = 'none';
     document.getElementById('energyMetrics').style.display = 'none';
@@ -1262,6 +1337,10 @@ document.getElementById('btnNewScan').addEventListener('click', () => {
     document.getElementById('actionPanel').style.display = 'none';
     document.getElementById('scanModeSelector').style.display = 'block';
     modeBadge.style.display = 'none';
+
+    // Clear all previous scan content so old data doesn't persist
+    resetUIContent();
+
     startScan();
 });
 
