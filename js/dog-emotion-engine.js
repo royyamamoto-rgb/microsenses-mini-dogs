@@ -61,6 +61,13 @@ class DogEmotionEngine {
         // Needs assessment
         this.currentNeeds = [];
 
+        // EMA smoothing for bounding box (filters COCO-SSD jitter)
+        this.smoothedBox = null;
+        this.EMA_ALPHA = 0.3; // Lower = more smoothing (0.3 = strong filter)
+
+        // Movement noise floor — anything below this is treated as zero
+        this.MOVEMENT_NOISE_FLOOR = 6; // pixels per frame
+
         // Behavioral pattern counters
         this.patterns = {
             pacing: 0,
@@ -82,12 +89,24 @@ class DogEmotionEngine {
     processFrame(detection, barkData) {
         if (!detection || !detection.box) return this._defaultAssessment();
 
-        const box = detection.box;
+        const rawBox = detection.box;
         const now = Date.now();
+
+        // Apply EMA smoothing to bounding box to filter COCO-SSD jitter
+        if (!this.smoothedBox) {
+            this.smoothedBox = { x: rawBox.x, y: rawBox.y, width: rawBox.width, height: rawBox.height };
+        } else {
+            const a = this.EMA_ALPHA;
+            this.smoothedBox.x = a * rawBox.x + (1 - a) * this.smoothedBox.x;
+            this.smoothedBox.y = a * rawBox.y + (1 - a) * this.smoothedBox.y;
+            this.smoothedBox.width = a * rawBox.width + (1 - a) * this.smoothedBox.width;
+            this.smoothedBox.height = a * rawBox.height + (1 - a) * this.smoothedBox.height;
+        }
+        const box = this.smoothedBox;
 
         const frameData = {
             timestamp: now,
-            box: { ...box },
+            box: { x: box.x, y: box.y, width: box.width, height: box.height },
             centerX: box.x + box.width / 2,
             centerY: box.y + box.height / 2,
             area: box.width * box.height,
@@ -278,9 +297,14 @@ class DogEmotionEngine {
         const curr = this.frameHistory[this.frameHistory.length - 1];
         const prev = this.frameHistory[this.frameHistory.length - 2];
 
-        const dx = curr.centerX - prev.centerX;
-        const dy = curr.centerY - prev.centerY;
-        const magnitude = Math.sqrt(dx * dx + dy * dy);
+        const rawDx = curr.centerX - prev.centerX;
+        const rawDy = curr.centerY - prev.centerY;
+        const rawMagnitude = Math.sqrt(rawDx * rawDx + rawDy * rawDy);
+
+        // Apply noise floor — suppress COCO-SSD bounding box jitter
+        const magnitude = rawMagnitude < this.MOVEMENT_NOISE_FLOOR ? 0 : rawMagnitude;
+        const dx = magnitude === 0 ? 0 : rawDx;
+        const dy = magnitude === 0 ? 0 : rawDy;
 
         const sizeChange = (curr.area - prev.area) / Math.max(1, prev.area);
         const aspectChange = curr.aspectRatio - prev.aspectRatio;
@@ -292,7 +316,7 @@ class DogEmotionEngine {
         }
 
         let direction = 'still';
-        if (magnitude > 3) {
+        if (magnitude > this.MOVEMENT_NOISE_FLOOR) {
             if (Math.abs(dx) > Math.abs(dy)) {
                 direction = dx > 0 ? 'right' : 'left';
             } else {
@@ -300,7 +324,7 @@ class DogEmotionEngine {
             }
         }
 
-        // Vertical oscillation
+        // Vertical oscillation (increased thresholds to filter noise)
         let verticalOscillation = 0;
         if (this.frameHistory.length >= 6) {
             const recent6 = this.frameHistory.slice(-6);
@@ -309,7 +333,8 @@ class DogEmotionEngine {
             for (let i = 2; i < yValues.length; i++) {
                 const d1 = yValues[i - 1] - yValues[i - 2];
                 const d2 = yValues[i] - yValues[i - 1];
-                if ((d1 > 2 && d2 < -2) || (d1 < -2 && d2 > 2)) oscillations++;
+                // Threshold raised from 2 to 8 to filter COCO-SSD jitter
+                if ((d1 > 8 && d2 < -8) || (d1 < -8 && d2 > 8)) oscillations++;
             }
             verticalOscillation = oscillations;
         }
@@ -323,7 +348,8 @@ class DogEmotionEngine {
             for (let i = 2; i < rightEdges.length; i++) {
                 const d1 = rightEdges[i - 1] - rightEdges[i - 2];
                 const d2 = rightEdges[i] - rightEdges[i - 1];
-                if ((d1 > 1 && d2 < -1) || (d1 < -1 && d2 > 1)) osc++;
+                // Threshold raised from 1 to 5 to filter jitter
+                if ((d1 > 5 && d2 < -5) || (d1 < -5 && d2 > 5)) osc++;
             }
             edgeOscillation = osc;
         }
@@ -350,8 +376,9 @@ class DogEmotionEngine {
         // ── Pacing Detection ──
         let directionChanges = 0;
         for (let i = 2; i < recentMovements.length; i++) {
-            if (recentMovements[i].dx > 3 && recentMovements[i - 1].dx < -3) directionChanges++;
-            if (recentMovements[i].dx < -3 && recentMovements[i - 1].dx > 3) directionChanges++;
+            // Threshold raised from 3 to 8 to require real movement
+            if (recentMovements[i].dx > 8 && recentMovements[i - 1].dx < -8) directionChanges++;
+            if (recentMovements[i].dx < -8 && recentMovements[i - 1].dx > 8) directionChanges++;
         }
         this.patterns.pacing = directionChanges > 3 ? directionChanges : 0;
 
@@ -365,7 +392,8 @@ class DogEmotionEngine {
         // ── Bouncing Detection ──
         const recentBounces = recentMovements.slice(-15);
         const totalBounce = recentBounces.reduce((s, m) => s + m.verticalOscillation, 0);
-        this.patterns.bouncing = totalBounce > 3 ? totalBounce : 0;
+        // Threshold raised from 3 to 6 to require real bouncing
+        this.patterns.bouncing = totalBounce > 6 ? totalBounce : 0;
 
         // ── Jumping Detection ──
         let jumpCount = 0;
@@ -375,8 +403,10 @@ class DogEmotionEngine {
         this.patterns.jumping = jumpCount;
 
         // ── Stillness Detection ──
+        // With noise floor applied, avgSpeed=0 means truly still
         const avgSpeed = recentMovements.reduce((s, m) => s + m.speed, 0) / recentMovements.length;
-        this.patterns.stillness = avgSpeed < 2 ? Math.round(30 - avgSpeed * 10) : 0;
+        // More aggressive stillness detection: anything under noise floor = still
+        this.patterns.stillness = avgSpeed < this.MOVEMENT_NOISE_FLOOR ? Math.round(30 - avgSpeed * 3) : 0;
 
         // ── Approaching/Retreating ──
         const avgSizeChange = recentMovements.reduce((s, m) => s + m.sizeChange, 0) / recentMovements.length;
@@ -397,7 +427,8 @@ class DogEmotionEngine {
         // ── Tail Wag Estimation ──
         const recentEdge = recentMovements.slice(-10);
         const totalEdgeOsc = recentEdge.reduce((s, m) => s + (m.edgeOscillation || 0), 0);
-        this.patterns.tailWagLikely = totalEdgeOsc > 3 ? totalEdgeOsc : 0;
+        // Threshold raised from 3 to 6 to filter bounding box jitter
+        this.patterns.tailWagLikely = totalEdgeOsc > 6 ? totalEdgeOsc : 0;
 
         // ── Restlessness ──
         // Frequent posture changes or erratic movement
@@ -581,12 +612,47 @@ class DogEmotionEngine {
             }
         }
 
+        // ── STILLNESS OVERRIDE ──
+        // Critical fix: If the dog is genuinely still (high stillness score),
+        // hard-suppress high-energy emotions. A still dog is NOT playful or excited.
+        if (this.patterns.stillness > 15) {
+            scores.playful = Math.round(scores.playful * 0.15);
+            scores.excited = Math.round(scores.excited * 0.15);
+            scores.calm += 30;
+            // Still + no audio = very likely calm or alert
+            if (!(barkData && barkData.isVocalizing)) {
+                scores.calm += 20;
+            }
+        } else if (this.patterns.stillness > 8) {
+            scores.playful = Math.round(scores.playful * 0.4);
+            scores.excited = Math.round(scores.excited * 0.4);
+            scores.calm += 15;
+        }
+
+        // ── LOW MOVEMENT OVERRIDE ──
+        // If average speed is near zero, strongly favor calm/alert over active emotions
+        if (avgSpeed < 1) {
+            scores.playful = Math.round(scores.playful * 0.1);
+            scores.excited = Math.round(scores.excited * 0.1);
+            scores.happy = Math.round(scores.happy * 0.5);
+            scores.calm += 25;
+        }
+
         // ── Temporal patterns ──
         if (this.emotionHistory.length > 30) {
             const recent = this.emotionHistory.slice(-30);
             const emotionChanges = new Set(recent.map(e => e.emotion)).size;
             if (emotionChanges > 5) { scores.anxious += 10; scores.stressed += 10; }
             if (emotionChanges <= 2) { scores.calm += 10; }
+        }
+
+        // ── TEMPORAL MOMENTUM ──
+        // Give a stability bonus to the current emotion to prevent flickering
+        if (this.emotionHistory.length > 5) {
+            const lastEmotion = this.emotionHistory[this.emotionHistory.length - 1].emotion;
+            if (scores[lastEmotion] !== undefined) {
+                scores[lastEmotion] += 12; // Stability bonus
+            }
         }
 
         // ── Determine primary and secondary emotions ──
@@ -927,6 +993,7 @@ class DogEmotionEngine {
         this.sizeHistory = [];
         this.postureHistory = [];
         this.currentPosture = 'unknown';
+        this.smoothedBox = null;
         this.detectedSignals = [];
         this.currentNeeds = [];
         this.primaryEmotion = 'observing';
