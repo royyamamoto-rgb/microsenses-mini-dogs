@@ -312,6 +312,38 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a0e; colo
   background: rgba(212,160,23,0.2); color: #d4a017;
 }
 
+/* ── Needs Panel ── */
+.needs-panel, .signals-panel { margin-top: 12px; background: #1e2a1f; border-radius: 10px; padding: 12px; border: 1px solid rgba(212,160,23,0.15); }
+.panel-header { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: #d4a017; margin-bottom: 10px; }
+.need-item { padding: 10px; margin-bottom: 8px; border-radius: 8px; border-left: 3px solid #888; background: rgba(255,255,255,0.03); }
+.need-item.need-high { border-left-color: #f44336; }
+.need-item.need-mod { border-left-color: #ffc107; }
+.need-item.need-low { border-left-color: #4caf50; }
+.need-title { font-size: 13px; font-weight: 700; color: #e8c547; margin-bottom: 4px; }
+.need-urg { font-size: 9px; padding: 2px 6px; border-radius: 10px; margin-left: 6px; font-weight: 600; }
+.need-high .need-urg { background: rgba(244,67,54,0.2); color: #f44336; }
+.need-mod .need-urg { background: rgba(255,193,7,0.2); color: #ffc107; }
+.need-low .need-urg { background: rgba(76,175,80,0.2); color: #4caf50; }
+.need-detail { font-size: 12px; color: #ccc; line-height: 1.5; margin-bottom: 4px; }
+.need-science { font-size: 10px; color: #888; font-style: italic; line-height: 1.4; }
+
+/* ── Signals Panel ── */
+.signal-item { display: flex; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: flex-start; }
+.signal-item:last-child { border-bottom: none; }
+.sig-icon { font-size: 16px; min-width: 24px; text-align: center; }
+.sig-signal { font-size: 12px; font-weight: 600; color: #e8c547; }
+.sig-detail { font-size: 11px; color: #aaa; line-height: 1.4; margin-top: 2px; }
+
+/* ── Confidence Note ── */
+.confidence-note { margin-top: 8px; padding: 8px 12px; background: rgba(212,160,23,0.08); border: 1px solid rgba(212,160,23,0.15); border-radius: 6px; font-size: 10px; color: #aaa; line-height: 1.5; }
+
+/* ── Posture metric ── */
+.metric-card.posture .value { text-transform: capitalize; }
+
+/* ── Emotion metrics 4-column ── */
+.realtime-metrics { grid-template-columns: repeat(4, 1fr) !important; }
+@media (max-width: 600px) { .realtime-metrics { grid-template-columns: repeat(2, 1fr) !important; } }
+
 /* Safe area */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .main-container { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }

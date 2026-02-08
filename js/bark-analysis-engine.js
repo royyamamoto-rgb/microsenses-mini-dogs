@@ -95,6 +95,15 @@ class BarkAnalysisEngine {
         this.BARK_MAX_DURATION = 15; // Max frames for single bark (~500ms)
         this.GROWL_MIN_DURATION = 15; // Growl is sustained
         this.HOWL_MIN_DURATION = 30;  // Howl is long sustained
+
+        // Inter-bark interval tracking (Pongrácz et al., 2005)
+        // IBI is the most scientifically validated bark parameter
+        this.lastBarkEndTime = 0;
+        this.interBarkIntervals = [];
+        this.maxIBIHistory = 50;
+
+        // Tonality tracking (harmonic-to-noise ratio)
+        this.tonalityHistory = [];
     }
 
     // ── Setup / Teardown ──
@@ -196,6 +205,9 @@ class BarkAnalysisEngine {
         this.silenceFrameCount = 0;
         this.totalFrameCount = 0;
         this.isSoundActive = false;
+        this.lastBarkEndTime = 0;
+        this.interBarkIntervals = [];
+        this.tonalityHistory = [];
         if (this.ringBuffer) this.ringBuffer.fill(0);
         this.ringBufferWritePos = 0;
         this.ringBufferFilled = false;
@@ -326,6 +338,20 @@ class BarkAnalysisEngine {
             ? Math.round(recentBarks.reduce((s, b) => s + b.avgFreq, 0) / recentBarks.length)
             : 0;
 
+        // Average inter-bark interval
+        const avgIBI = this.interBarkIntervals.length > 0
+            ? Math.round(this.interBarkIntervals.slice(-10).reduce((a, b) => a + b, 0) / Math.min(10, this.interBarkIntervals.length))
+            : 0;
+
+        // Average tonality
+        const avgTonality = this.tonalityHistory.length > 0
+            ? Math.round((this.tonalityHistory.slice(-10).reduce((a, b) => a + b, 0) / Math.min(10, this.tonalityHistory.length)) * 100) / 100
+            : 0.5;
+
+        // Last bark pitch contour
+        const lastBark = this.barkHistory.length > 0 ? this.barkHistory[this.barkHistory.length - 1] : null;
+        const lastPitchContour = lastBark ? lastBark.pitchContour || 'flat' : 'flat';
+
         return {
             isVocalizing: this.isSoundActive,
             currentType: this.vocalizationType,
@@ -336,7 +362,10 @@ class BarkAnalysisEngine {
             avgPitch,
             hasBaseline: this.baselineEstablished,
             dominantFreq: this.dominantFreqHistory.length > 0
-                ? this.dominantFreqHistory[this.dominantFreqHistory.length - 1].freq : 0
+                ? this.dominantFreqHistory[this.dominantFreqHistory.length - 1].freq : 0,
+            interBarkInterval: avgIBI,
+            tonality: avgTonality,
+            pitchContour: lastPitchContour
         };
     }
 
@@ -461,6 +490,44 @@ class BarkAnalysisEngine {
             peakRMS: Math.round(this.currentBark.peakRMS * 1000) / 1000,
             type: barkType
         };
+
+        // Inter-bark interval (IBI) — Pongrácz et al. (2005)
+        // Time between end of last bark and start of this bark
+        if (this.lastBarkEndTime > 0) {
+            const ibi = Math.round(((this.currentBark.startFrame - this.lastBarkEndTime) / 30) * 1000);
+            if (ibi > 0 && ibi < 10000) { // Reasonable range
+                bark.interBarkInterval = ibi;
+                this.interBarkIntervals.push(ibi);
+                if (this.interBarkIntervals.length > this.maxIBIHistory) {
+                    this.interBarkIntervals.shift();
+                }
+            }
+        }
+        this.lastBarkEndTime = this.currentBark.endFrame;
+
+        // Tonality estimation (harmonic-to-noise ratio approximation)
+        // Tonal barks have concentrated spectral energy; noisy barks have spread energy
+        if (this.spectralHistory.length > 0) {
+            const recentSpectral = this.spectralHistory.slice(-duration);
+            const avgMidRatio = recentSpectral.reduce((s, sp) => s + sp.midRatio, 0) / recentSpectral.length;
+            // Higher mid ratio with low spread = more tonal
+            bark.tonality = Math.min(1, avgMidRatio * 2);
+            this.tonalityHistory.push(bark.tonality);
+            if (this.tonalityHistory.length > 50) this.tonalityHistory.shift();
+        }
+
+        // Pitch contour (rising/falling/flat)
+        if (this.currentBark.frequencies.length >= 3) {
+            const freqs = this.currentBark.frequencies;
+            const firstThird = freqs.slice(0, Math.floor(freqs.length / 3));
+            const lastThird = freqs.slice(-Math.floor(freqs.length / 3));
+            const avgFirst = firstThird.reduce((a, b) => a + b, 0) / firstThird.length;
+            const avgLast = lastThird.reduce((a, b) => a + b, 0) / lastThird.length;
+            const change = avgLast - avgFirst;
+            bark.pitchContour = change > 30 ? 'rising' : change < -30 ? 'falling' : 'flat';
+        } else {
+            bark.pitchContour = 'flat';
+        }
 
         this.barkHistory.push(bark);
         if (this.barkHistory.length > this.maxBarkHistory) {

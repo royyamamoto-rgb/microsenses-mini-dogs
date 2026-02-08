@@ -65,6 +65,11 @@ class CanineTranslator {
             energy369: engine369 ? engine369.metrics : null
         };
 
+        // Store signals and needs for inclusion in translations
+        this._lastSignals = emotion.detectedSignals || [];
+        this._lastNeeds = emotion.needs || [];
+        this._lastConfidenceNote = emotion.confidenceExplanation || '';
+
         // Generate translation
         const translation = this._generateTranslation(context);
 
@@ -447,6 +452,9 @@ class CanineTranslator {
             confidence,
             science,
             recommendation,
+            signals: this._lastSignals || [],
+            needs: this._lastNeeds || [],
+            confidenceNote: this._lastConfidenceNote || '',
             timestamp: Date.now()
         };
     }

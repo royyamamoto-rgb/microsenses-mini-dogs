@@ -416,6 +416,42 @@ async function processFrame() {
                     translation.confidence > 0 ? `Confidence: ${translation.confidence}%` : '';
             }
 
+            // Posture display
+            const postureEl = document.getElementById('rtPosture');
+            if (postureEl) postureEl.textContent = emotionAssess.posture || '--';
+
+            // Detected Signals panel
+            const sigEl = document.getElementById('signalsContent');
+            if (sigEl && emotionAssess.detectedSignals && emotionAssess.detectedSignals.length > 0) {
+                document.getElementById('signalsPanel').style.display = 'block';
+                let sigHtml = '';
+                emotionAssess.detectedSignals.forEach(s => {
+                    const iconMap = { posture: '\u{1F9CD}', movement: '\u{1F3C3}', pattern: '\u{1F50D}', audio: '\u{1F50A}' };
+                    const icon = iconMap[s.type] || '?';
+                    sigHtml += `<div class="signal-item"><span class="sig-icon">${icon}</span><div><div class="sig-signal">${s.signal}</div><div class="sig-detail">${s.detail}</div></div></div>`;
+                });
+                sigEl.innerHTML = sigHtml;
+            }
+
+            // Needs panel
+            const needsEl = document.getElementById('needsContent');
+            if (needsEl && emotionAssess.needs && emotionAssess.needs.length > 0) {
+                document.getElementById('needsPanel').style.display = 'block';
+                let needHtml = '';
+                emotionAssess.needs.forEach(n => {
+                    const urgClass = n.urgency === 'high' ? 'need-high' : n.urgency === 'moderate' ? 'need-mod' : 'need-low';
+                    needHtml += `<div class="need-item ${urgClass}"><div class="need-title">${n.need} <span class="need-urg">${n.urgency.toUpperCase()}</span></div><div class="need-detail">${n.detail}</div><div class="need-science">${n.science}</div></div>`;
+                });
+                needsEl.innerHTML = needHtml;
+            }
+
+            // Confidence explanation
+            const confExpEl = document.getElementById('confidenceExplanation');
+            if (confExpEl && emotionAssess.confidenceExplanation) {
+                confExpEl.textContent = emotionAssess.confidenceExplanation;
+                confExpEl.style.display = 'block';
+            }
+
             // Live indicators
             updateLiveIndicators(emotionAssess, barkAssess, completion);
 
@@ -486,6 +522,8 @@ async function startScan() {
     document.getElementById('barkStatus').style.display = 'flex';
     document.getElementById('chartSection').style.display = 'block';
     document.getElementById('liveIndicators').style.display = 'block';
+    document.getElementById('signalsPanel').style.display = 'block';
+    document.getElementById('needsPanel').style.display = 'block';
     timerSection.style.display = 'block';
     modeBadge.style.display = 'inline-block';
     modeBadge.textContent = 'SCANNING';
@@ -741,6 +779,8 @@ document.getElementById('btnNewScan').addEventListener('click', () => {
     document.getElementById('barkStatus').style.display = 'none';
     document.getElementById('chartSection').style.display = 'none';
     document.getElementById('liveIndicators').style.display = 'none';
+    document.getElementById('signalsPanel').style.display = 'none';
+    document.getElementById('needsPanel').style.display = 'none';
     modeBadge.style.display = 'none';
     startScan();
 });
