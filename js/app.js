@@ -938,13 +938,18 @@ function renderFriendlyReport(emotionReport, translationReport, barkReport, ener
     }
 
     // ── Sound Check ──
+    // Only show sound section based on ACTUAL confirmed dog vocalizations
+    // Require minimum bark count to avoid reporting ambient noise as dog sounds
+    const confirmedBarks = barkReport.barks.total;
+    const hasDogSounds = confirmedBarks >= 2; // Need at least 2 confirmed barks to report
+
     html += `<div class="friendly-section">
         <div class="friendly-section-title"><span class="fs-icon">\u{1F3A4}</span> Sound Check</div>`;
 
-    if (barkReport.barks.total === 0) {
+    if (!hasDogSounds) {
         html += `<div class="friendly-item info">
-            <div class="friendly-item-title">Your dog was quiet</div>
-            <div class="friendly-item-text">No barking, whining, or growling was detected during the scan. A quiet dog doesn't mean an unhappy one \u2014 many calm or content dogs are silent.</div>
+            <div class="friendly-item-title">No dog vocalizations detected</div>
+            <div class="friendly-item-text">The microphone did not pick up any barking, whining, or growling during the scan. Many calm and content dogs are quiet \u2014 silence is normal.</div>
         </div>`;
     } else {
         const barkTypeNames = {
@@ -957,16 +962,19 @@ function renderFriendlyReport(emotionReport, translationReport, barkReport, ener
         };
         const barkDesc = barkTypeNames[barkReport.barks.dominantType] || 'Vocalizations detected';
         html += `<div class="friendly-item ${barkReport.barks.dominantType === 'play' ? 'positive' : barkReport.barks.dominantType === 'aggressive' ? 'urgent' : 'info'}">
-            <div class="friendly-item-title">${barkReport.barks.total} bark${barkReport.barks.total !== 1 ? 's' : ''} detected</div>
+            <div class="friendly-item-title">${confirmedBarks} bark${confirmedBarks !== 1 ? 's' : ''} detected</div>
             <div class="friendly-item-text">${barkDesc}. Bark rate: ${barkReport.barks.rate} per minute.</div>
         </div>`;
     }
 
-    // Vocalization types — only show actual dog sounds (not ambient)
+    // Vocalization types — ONLY show with high frame counts to confirm actual dog sounds
+    // Require at least 15 frames of sustained detection (not just ambient noise blips)
     const vocalTypes = barkReport.vocalizations.typeDistribution || {};
-    if (vocalTypes.growl && vocalTypes.growl > 2) html += `<div class="friendly-item urgent"><div class="friendly-item-title">Growling detected</div><div class="friendly-item-text">Your dog was growling. This usually means they want space or feel uncomfortable.</div></div>`;
-    if (vocalTypes.whine && vocalTypes.whine > 2) html += `<div class="friendly-item caution"><div class="friendly-item-title">Whining detected</div><div class="friendly-item-text">Your dog was whining. Dogs whine when they need something, are in pain, or feel anxious.</div></div>`;
-    if (vocalTypes.howl && vocalTypes.howl > 2) html += `<div class="friendly-item info"><div class="friendly-item-title">Howling detected</div><div class="friendly-item-text">Your dog howled during the scan. Howling is often a social call \u2014 your dog may be looking for company or responding to sounds.</div></div>`;
+    if (hasDogSounds) {
+        if (vocalTypes.growl && vocalTypes.growl > 15) html += `<div class="friendly-item urgent"><div class="friendly-item-title">Growling detected</div><div class="friendly-item-text">Your dog was growling. This usually means they want space or feel uncomfortable.</div></div>`;
+        if (vocalTypes.whine && vocalTypes.whine > 15) html += `<div class="friendly-item caution"><div class="friendly-item-title">Whining detected</div><div class="friendly-item-text">Your dog was whining. Dogs whine when they need something, are in pain, or feel anxious.</div></div>`;
+        if (vocalTypes.howl && vocalTypes.howl > 15) html += `<div class="friendly-item info"><div class="friendly-item-title">Howling detected</div><div class="friendly-item-text">Your dog howled during the scan. Howling is often a social call \u2014 your dog may be looking for company or responding to sounds.</div></div>`;
+    }
 
     html += '</div>';
 

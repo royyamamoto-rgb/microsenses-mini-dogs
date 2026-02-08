@@ -201,53 +201,66 @@ class DogEmotionEngine {
     // CROUCH: Rapid height decrease — play bow, fear, or submission
 
     _estimatePosture() {
-        if (this.frameHistory.length < 3) return;
+        if (this.frameHistory.length < 5) return;
 
         const curr = this.frameHistory[this.frameHistory.length - 1];
-        const ar = curr.aspectRatio;
 
-        // Height-to-width analysis for better down detection
-        // A dog in "down" has a significantly lower height relative to earlier frames
-        let avgHeight = curr.box.height;
-        if (this.frameHistory.length >= 15) {
-            const recentHeights = this.frameHistory.slice(-15).map(f => f.box.height);
-            avgHeight = recentHeights.reduce((a, b) => a + b, 0) / recentHeights.length;
-        }
+        // Use AVERAGED aspect ratio over last 20 frames for stability
+        // Single-frame AR is noisy due to COCO-SSD bounding box jitter
+        const recentFrames = this.frameHistory.slice(-20);
+        const avgAR = recentFrames.reduce((s, f) => s + f.aspectRatio, 0) / recentFrames.length;
+
+        // Also compute averaged height for reference
+        const avgHeight = recentFrames.reduce((s, f) => s + f.box.height, 0) / recentFrames.length;
+        const avgWidth = recentFrames.reduce((s, f) => s + f.box.width, 0) / recentFrames.length;
 
         let posture = 'stand';
 
-        if (ar >= 1.8) {
+        if (avgAR >= 1.8) {
             // Very wide rectangle — definitely in down position
             posture = 'down';
-        } else if (ar >= 1.4) {
-            // Wide rectangle — could be down or stand depending on height
-            // Check if height is low relative to width (down) or normal (stand)
-            // A standing dog has proportional height; a down dog is squished flat
-            const widthToHeight = curr.box.width / Math.max(1, curr.box.height);
-            posture = widthToHeight >= 1.5 ? 'down' : 'stand';
-        } else if (ar >= 1.0 && ar < 1.4) {
+        } else if (avgAR >= 1.4) {
+            // Wide rectangle — could be down or stand
+            // If dog is also still, more likely down
+            if (this.patterns.stillness > 5 || avgWidth / Math.max(1, avgHeight) >= 1.5) {
+                posture = 'down';
+            } else {
+                posture = 'stand';
+            }
+        } else if (avgAR >= 1.0 && avgAR < 1.4) {
             // Roughly square — standing (front view) or transitioning
             posture = 'stand';
-        } else if (ar >= 0.5 && ar < 1.0) {
+        } else if (avgAR >= 0.5 && avgAR < 1.0) {
             // Taller than wide — sitting (hindquarters down, front up)
             posture = 'sit';
-        } else if (ar < 0.5) {
+        } else if (avgAR < 0.5) {
             // Very tall and narrow — sitting upright or begging
             posture = 'sit';
         }
 
         // Check for crouch — rapid decrease in height from stand
-        if (this.frameHistory.length >= 5) {
-            const prev5 = this.frameHistory.slice(-5);
-            const heightRatio = curr.box.height / Math.max(1, prev5[0].box.height);
-            if (heightRatio < 0.7 && prev5[0].aspectRatio < 1.5) {
+        if (this.frameHistory.length >= 8) {
+            const prev8 = this.frameHistory.slice(-8);
+            const heightRatio = curr.box.height / Math.max(1, prev8[0].box.height);
+            if (heightRatio < 0.65 && prev8[0].aspectRatio < 1.5) {
                 posture = 'crouch';
             }
         }
 
-        // Stillness + wide AR = more likely down than stand
-        if (this.patterns.stillness > 10 && ar >= 1.3) {
+        // Stillness + wide averaged AR = more likely down than stand
+        if (this.patterns.stillness > 8 && avgAR >= 1.3) {
             posture = 'down';
+        }
+
+        // STABILITY: Only change posture if the new posture has been consistent
+        // for at least 5 frames in the recent history. Prevents single-frame flickers.
+        if (this.postureHistory.length >= 5 && posture !== this.currentPosture) {
+            const recent5Postures = this.postureHistory.slice(-5).map(p => p.posture);
+            const currentPostureCount = recent5Postures.filter(p => p === this.currentPosture).length;
+            // If the current posture is still dominant in recent history, don't change
+            if (currentPostureCount >= 3) {
+                posture = this.currentPosture;
+            }
         }
 
         // Track posture changes
