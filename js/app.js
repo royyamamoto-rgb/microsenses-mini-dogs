@@ -244,6 +244,60 @@ function drawRealtimeChart() {
     rtCtx.stroke();
 }
 
+// ── Live Scan Readings — Actual measured data from camera & mic ──
+function updateScanReadings(emotionAssess, barkAssess) {
+    const rd = emotionAssess.rawReadings;
+    if (!rd) return;
+
+    // Vision readings
+    const setReading = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+    };
+
+    setReading('rdMovSpeed', rd.movementSpeed);
+    setReading('rdBodyW', rd.bodyWidth);
+    setReading('rdBodyH', rd.bodyHeight);
+    setReading('rdAspect', rd.aspectRatio);
+    setReading('rdSizeChange', rd.sizeChangeRate);
+    setReading('rdAccel', rd.acceleration);
+    setReading('rdHoriz', rd.horizontalMotion);
+    setReading('rdVert', rd.verticalMotion);
+    setReading('rdArea', rd.bodyArea);
+    setReading('rdStillness', rd.stillnessScore);
+    setReading('rdFrames', rd.framesAnalyzed);
+
+    // Audio readings
+    if (barkAssess) {
+        setReading('rdAudioLvl', barkAssess.intensity || 0);
+        setReading('rdAudioFreq', barkAssess.dominantFreq || 0);
+        setReading('rdBarkRate', barkAssess.barkRate || 0);
+    }
+
+    // Highlight non-zero reading items
+    document.querySelectorAll('.reading-item').forEach(item => {
+        const val = item.querySelector('.r-value');
+        if (val) {
+            const n = parseFloat(val.textContent);
+            item.classList.toggle('active', n !== 0 && !isNaN(n));
+        }
+    });
+
+    // Active patterns display
+    const patternsEl = document.getElementById('rdActivePatterns');
+    if (patternsEl && rd.activePatterns) {
+        if (rd.activePatterns.length > 0) {
+            const warnPatterns = ['pacing', 'restlessness', 'retreating', 'crouching'];
+            patternsEl.innerHTML = rd.activePatterns.map(p => {
+                const cls = warnPatterns.includes(p) ? 'pattern-chip warn' : 'pattern-chip';
+                return `<span class="${cls}">${p.replace(/([A-Z])/g, ' $1').trim()}</span>`;
+            }).join('');
+        } else {
+            patternsEl.innerHTML = '<span class="pattern-chip">no patterns</span>';
+        }
+    }
+}
+
 // ── Live Indicator Chips ──
 function updateLiveIndicators(emotion, barkAssess, completion) {
     const el = document.getElementById('indicatorChips');
@@ -452,6 +506,9 @@ async function processFrame() {
                 confExpEl.style.display = 'block';
             }
 
+            // Live Scan Readings — actual measured data
+            updateScanReadings(emotionAssess, barkAssess);
+
             // Live indicators
             updateLiveIndicators(emotionAssess, barkAssess, completion);
 
@@ -517,6 +574,7 @@ async function startScan() {
     // Show UI elements
     document.getElementById('translationPanel').style.display = 'block';
     document.getElementById('emotionMetrics').style.display = 'grid';
+    document.getElementById('scanReadingsPanel').style.display = 'block';
     document.getElementById('energyMetrics').style.display = 'grid';
     document.getElementById('formulaBox').style.display = 'block';
     document.getElementById('barkStatus').style.display = 'flex';
@@ -781,6 +839,7 @@ document.getElementById('btnNewScan').addEventListener('click', () => {
     document.getElementById('liveIndicators').style.display = 'none';
     document.getElementById('signalsPanel').style.display = 'none';
     document.getElementById('needsPanel').style.display = 'none';
+    document.getElementById('scanReadingsPanel').style.display = 'none';
     modeBadge.style.display = 'none';
     startScan();
 });

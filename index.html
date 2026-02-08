@@ -89,6 +89,87 @@
           </div>
         </div>
 
+        <!-- LIVE SCAN READINGS — Actual measured data from camera & mic -->
+        <div id="scanReadingsPanel" class="scan-readings-panel" style="display:none;">
+          <div class="readings-header">
+            <span class="readings-icon">&#x1F4CA;</span>
+            <span class="readings-label">LIVE SCAN READINGS</span>
+          </div>
+          <div class="readings-grid">
+            <div class="reading-item">
+              <div class="r-label">Movement Speed</div>
+              <div class="r-value" id="rdMovSpeed">0</div>
+              <div class="r-unit">px/frame</div>
+            </div>
+            <div class="reading-item">
+              <div class="r-label">Body Width</div>
+              <div class="r-value" id="rdBodyW">0</div>
+              <div class="r-unit">px</div>
+            </div>
+            <div class="reading-item">
+              <div class="r-label">Body Height</div>
+              <div class="r-value" id="rdBodyH">0</div>
+              <div class="r-unit">px</div>
+            </div>
+            <div class="reading-item">
+              <div class="r-label">Aspect Ratio</div>
+              <div class="r-value" id="rdAspect">0</div>
+              <div class="r-unit">w/h</div>
+            </div>
+            <div class="reading-item">
+              <div class="r-label">Size Change</div>
+              <div class="r-value" id="rdSizeChange">0</div>
+              <div class="r-unit">%/frame</div>
+            </div>
+            <div class="reading-item">
+              <div class="r-label">Acceleration</div>
+              <div class="r-value" id="rdAccel">0</div>
+              <div class="r-unit">px/f&sup2;</div>
+            </div>
+            <div class="reading-item">
+              <div class="r-label">Horiz. Motion</div>
+              <div class="r-value" id="rdHoriz">0</div>
+              <div class="r-unit">px</div>
+            </div>
+            <div class="reading-item">
+              <div class="r-label">Vert. Motion</div>
+              <div class="r-value" id="rdVert">0</div>
+              <div class="r-unit">px</div>
+            </div>
+            <div class="reading-item">
+              <div class="r-label">Body Area</div>
+              <div class="r-value" id="rdArea">0</div>
+              <div class="r-unit">px&sup2;</div>
+            </div>
+            <div class="reading-item">
+              <div class="r-label">Stillness</div>
+              <div class="r-value" id="rdStillness">0</div>
+              <div class="r-unit">score</div>
+            </div>
+            <div class="reading-item">
+              <div class="r-label">Audio Level</div>
+              <div class="r-value" id="rdAudioLvl">0</div>
+              <div class="r-unit">%</div>
+            </div>
+            <div class="reading-item">
+              <div class="r-label">Audio Freq</div>
+              <div class="r-value" id="rdAudioFreq">0</div>
+              <div class="r-unit">Hz</div>
+            </div>
+            <div class="reading-item">
+              <div class="r-label">Bark Rate</div>
+              <div class="r-value" id="rdBarkRate">0</div>
+              <div class="r-unit">/min</div>
+            </div>
+            <div class="reading-item">
+              <div class="r-label">Frames</div>
+              <div class="r-value" id="rdFrames">0</div>
+              <div class="r-unit">analyzed</div>
+            </div>
+          </div>
+          <div class="active-patterns" id="rdActivePatterns"></div>
+        </div>
+
         <!-- Confidence Explanation -->
         <div id="confidenceExplanation" class="confidence-note" style="display:none;"></div>
 

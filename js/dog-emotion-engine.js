@@ -698,6 +698,28 @@ class DogEmotionEngine {
             this.patterns.bouncing * 5
         ));
 
+        // Raw scan readings — actual measured values from the camera
+        const currFrame = this.frameHistory[this.frameHistory.length - 1];
+        const rawReadings = {
+            movementSpeed: Math.round(avgSpeed * 10) / 10,
+            instantSpeed: Math.round(movement.speed * 10) / 10,
+            bodyWidth: currFrame ? Math.round(currFrame.box.width) : 0,
+            bodyHeight: currFrame ? Math.round(currFrame.box.height) : 0,
+            bodyArea: currFrame ? Math.round(currFrame.area) : 0,
+            aspectRatio: currFrame ? Math.round(currFrame.aspectRatio * 100) / 100 : 0,
+            sizeChangeRate: Math.round((movement.sizeChange || 0) * 10000) / 100,
+            centerX: currFrame ? Math.round(currFrame.centerX) : 0,
+            centerY: currFrame ? Math.round(currFrame.centerY) : 0,
+            verticalMotion: Math.round((movement.dy || 0) * 10) / 10,
+            horizontalMotion: Math.round((movement.dx || 0) * 10) / 10,
+            verticalOscillation: movement.verticalOscillation || 0,
+            edgeOscillation: movement.edgeOscillation || 0,
+            acceleration: Math.round((movement.acceleration || 0) * 10) / 10,
+            framesAnalyzed: this.frameHistory.length,
+            stillnessScore: this.patterns.stillness,
+            activePatterns: Object.entries(this.patterns).filter(([k, v]) => v > 0).map(([k]) => k)
+        };
+
         return {
             primary: primary[0],
             secondary: secondary[1] > 10 ? secondary[0] : null,
@@ -710,6 +732,7 @@ class DogEmotionEngine {
                 avgSpeed: Math.round(avgSpeed * 10) / 10,
                 direction: movement.direction
             },
+            rawReadings,
             detectedSignals: [...this.detectedSignals],
             confidenceExplanation,
             dataQuality,
