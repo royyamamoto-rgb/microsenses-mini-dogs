@@ -34,6 +34,10 @@ let scanStartTime = null;
 let frameCount = 0;
 let dogDetectionCount = 0;
 
+// Scan mode: 'continuous', '30', '60'
+let scanMode = 'continuous';
+let scanDurationLimit = 0; // 0 = continuous, else ms
+
 // Energy tracking for chart
 let energyData = [];
 
@@ -372,7 +376,20 @@ async function processFrame() {
     const now = performance.now();
     const elapsed = now - scanStartTime;
 
-    timerValue.textContent = formatTimer(elapsed);
+    // Timer display — countdown for timed scans, count-up for continuous
+    if (scanDurationLimit > 0) {
+        const remaining = Math.max(0, scanDurationLimit - elapsed);
+        timerValue.textContent = formatTimer(remaining);
+        timerValue.classList.add('countdown');
+        // Auto-stop when time runs out
+        if (remaining <= 0) {
+            completeScan();
+            return;
+        }
+    } else {
+        timerValue.textContent = formatTimer(elapsed);
+        timerValue.classList.remove('countdown');
+    }
     frameCount++;
 
     try {
@@ -554,6 +571,11 @@ async function startScan() {
     energyData = [];
     scanStartTime = performance.now();
 
+    // Set scan duration from mode
+    if (scanMode === '30') scanDurationLimit = 30000;
+    else if (scanMode === '60') scanDurationLimit = 60000;
+    else scanDurationLimit = 0;
+
     // Reset all engines
     engine369.clearAll();
     barkEngine.clearAll();
@@ -584,7 +606,16 @@ async function startScan() {
     document.getElementById('needsPanel').style.display = 'block';
     timerSection.style.display = 'block';
     modeBadge.style.display = 'inline-block';
-    modeBadge.textContent = 'SCANNING';
+    modeBadge.textContent = scanDurationLimit > 0 ? `SCANNING ${scanDurationLimit / 1000}s` : 'SCANNING';
+
+    // Timer mode label
+    const timerModeEl = document.getElementById('timerMode');
+    if (timerModeEl) {
+        timerModeEl.textContent = scanDurationLimit > 0 ? `${scanDurationLimit / 1000}-second scan` : 'Continuous — press Stop when done';
+    }
+
+    // Hide scan mode selector during scan
+    document.getElementById('scanModeSelector').style.display = 'none';
 
     btnStart.disabled = true;
     btnStop.disabled = false;
@@ -626,6 +657,9 @@ function completeScan() {
     btnStart.disabled = false;
     btnStop.disabled = true;
 
+    // Show scan mode selector again
+    document.getElementById('scanModeSelector').style.display = 'block';
+
     // Build report
     const elapsed = (performance.now() - scanStartTime) / 1000;
     document.getElementById('scanDurationDisplay').textContent = `${elapsed.toFixed(0)}s`;
@@ -633,14 +667,205 @@ function completeScan() {
     document.getElementById('scanDetections').textContent = dogDetectionCount;
     document.getElementById('scanCycles').textContent = energyReport.totalCycles;
 
-    // Render results
+    // Render human-friendly report
+    renderFriendlyReport(emotionReport, translationReport, barkReport, energyReport, elapsed);
+
+    // Render technical detail (hidden by default)
     renderEmotionReport(emotionReport);
     renderTranslationReport(translationReport);
     renderBarkReport(barkReport);
     renderEnergyReport(energyReport);
 
+    // Reset detail toggle
+    const detailEl = document.getElementById('technicalDetail');
+    if (detailEl) detailEl.style.display = 'none';
+    const toggleBtn = document.getElementById('btnToggleDetail');
+    if (toggleBtn) toggleBtn.textContent = 'Show Detailed Data';
+
     resultsPanel.classList.add('active');
     setStatus('Analysis complete!', 'ready');
+}
+
+// ── Human-Friendly Report ──
+function renderFriendlyReport(emotionReport, translationReport, barkReport, energyReport, elapsed) {
+    const el = document.getElementById('friendlyReport');
+    if (!el) return;
+
+    const emotion = emotionReport.dominantEmotion || 'unknown';
+    const wellbeing = emotionReport.wellbeing || 50;
+    const confidence = emotionReport.confidence || 0;
+    const stability = emotionReport.stability || 0;
+    const posture = emotionReport.posture ? emotionReport.posture.current : 'unknown';
+    const movement = emotionReport.movement || { avgSpeed: 0, energyLevel: 'low' };
+
+    // Mood emoji and description
+    const moodMap = {
+        happy:      { emoji: '\u{1F436}', text: 'Your dog is happy!', sub: 'Relaxed body language with positive energy. Your pup is in a great mood.' },
+        calm:       { emoji: '\u{1F634}', text: 'Your dog is calm and relaxed', sub: 'Settled and content. No signs of stress or anxiety detected.' },
+        excited:    { emoji: '\u{1F929}', text: 'Your dog is excited!', sub: 'High energy and enthusiasm detected. Your dog is really worked up about something.' },
+        playful:    { emoji: '\u{1F3BE}', text: 'Your dog wants to play!', sub: 'Active, bouncy movement detected. Your pup is in the mood for some fun.' },
+        anxious:    { emoji: '\u{1F630}', text: 'Your dog seems anxious', sub: 'Restless movement patterns detected. Something may be making your dog uneasy.' },
+        stressed:   { emoji: '\u{1F613}', text: 'Your dog appears stressed', sub: 'Signs of tension detected. Consider removing stressors and providing comfort.' },
+        fearful:    { emoji: '\u{1F628}', text: 'Your dog may be scared', sub: 'Withdrawal or defensive behavior detected. Create a safe, quiet space for your dog.' },
+        aggressive: { emoji: '\u{26A0}\u{FE0F}', text: 'Your dog is showing aggression', sub: 'Warning signals detected. Give your dog space and avoid approaching.' },
+        alert:      { emoji: '\u{1F440}', text: 'Your dog is alert and watchful', sub: 'Attentive posture with focused attention. Your dog is monitoring something.' },
+        sad:        { emoji: '\u{1F622}', text: 'Your dog seems sad or low energy', sub: 'Low activity with subdued body language. Your dog may need comfort or stimulation.' },
+        curious:    { emoji: '\u{1F9D0}', text: 'Your dog is curious', sub: 'Head tilting and exploratory behavior detected. Something has caught their interest.' },
+        observing:  { emoji: '\u{1F43E}', text: 'Observing your dog...', sub: 'Not enough data collected yet. Try a longer scan.' },
+        unknown:    { emoji: '\u{1F43E}', text: 'Scan complete', sub: 'Keep your dog in frame for better results next time.' }
+    };
+
+    const mood = moodMap[emotion] || moodMap.unknown;
+
+    // Wellbeing color
+    const wbColor = wellbeing >= 65 ? '#7cb342' : wellbeing <= 35 ? '#f44336' : '#ffc107';
+    const wbText = wellbeing >= 65 ? 'Good' : wellbeing <= 35 ? 'Needs attention' : 'Mixed';
+
+    // Posture plain text
+    const postureText = {
+        standing: 'Standing up',
+        sitting: 'Sitting down',
+        lying: 'Lying down',
+        crouching: 'Crouched low',
+        unknown: 'Not detected'
+    };
+
+    // Activity level
+    const actText = movement.energyLevel === 'high' ? 'Very active' :
+                    movement.energyLevel === 'moderate' ? 'Moderately active' : 'Calm / still';
+
+    let html = '';
+
+    // ── Header: Big mood summary ──
+    html += `<div class="friendly-report-header">
+        <div class="friendly-mood-emoji">${mood.emoji}</div>
+        <div class="friendly-mood-text">${mood.text}</div>
+        <div class="friendly-mood-sub">${mood.sub}</div>
+    </div>`;
+
+    // ── Quick Stats ──
+    html += `<div class="friendly-quick-stats">
+        <div class="fqs-item"><div class="fqs-val" style="color:${wbColor}">${wellbeing}%</div><div class="fqs-label">Well-being</div></div>
+        <div class="fqs-item"><div class="fqs-val">${stability}%</div><div class="fqs-label">Stability</div></div>
+        <div class="fqs-item"><div class="fqs-val">${Math.round(elapsed)}s</div><div class="fqs-label">Scan Time</div></div>
+    </div>`;
+
+    // ── What We Observed ──
+    html += `<div class="friendly-section">
+        <div class="friendly-section-title"><span class="fs-icon">\u{1F50D}</span> What We Observed</div>`;
+
+    html += `<div class="friendly-item info">
+        <div class="friendly-item-title">Position: ${postureText[posture] || posture}</div>
+        <div class="friendly-item-text">Your dog was mostly ${posture === 'lying' ? 'lying down' : posture === 'sitting' ? 'sitting' : posture === 'crouching' ? 'crouched low' : 'standing'} during the scan.</div>
+    </div>`;
+
+    html += `<div class="friendly-item info">
+        <div class="friendly-item-title">Activity Level: ${actText}</div>
+        <div class="friendly-item-text">Movement speed averaged ${movement.avgSpeed} (${movement.energyLevel} energy).</div>
+    </div>`;
+
+    // Detected patterns in plain language
+    if (emotionReport.patterns) {
+        const p = emotionReport.patterns;
+        if (p.pacing > 3) html += `<div class="friendly-item caution"><div class="friendly-item-title">Pacing detected</div><div class="friendly-item-text">Your dog was walking back and forth repeatedly. This can mean they need to go outside, are anxious, or need something.</div></div>`;
+        if (p.bouncing > 2) html += `<div class="friendly-item positive"><div class="friendly-item-title">Bouncing / jumping around</div><div class="friendly-item-text">Your dog was bouncing with excitement. This usually means they're happy and want to play!</div></div>`;
+        if (p.playBows > 0) html += `<div class="friendly-item positive"><div class="friendly-item-title">Play bow detected!</div><div class="friendly-item-text">Your dog dropped their front end down \u2014 this is a universal "let's play!" signal in the dog world.</div></div>`;
+        if (p.spinning > 0) html += `<div class="friendly-item positive"><div class="friendly-item-title">Spinning in circles</div><div class="friendly-item-text">Your dog was turning in circles. Often a sign of excitement, though persistent spinning can indicate anxiety.</div></div>`;
+        if (p.headTilts > 2) html += `<div class="friendly-item positive"><div class="friendly-item-title">Head tilting</div><div class="friendly-item-text">Your dog was tilting their head! This usually means they're trying to understand something or are curious about a sound.</div></div>`;
+        if (p.approaching > 3) html += `<div class="friendly-item positive"><div class="friendly-item-title">Coming toward you</div><div class="friendly-item-text">Your dog was moving closer to the camera/you. They want your attention or interaction.</div></div>`;
+        if (p.retreating > 3) html += `<div class="friendly-item caution"><div class="friendly-item-title">Moving away</div><div class="friendly-item-text">Your dog was backing off or increasing distance. They may need space or feel uncertain.</div></div>`;
+        if (p.stillness > 20) html += `<div class="friendly-item info"><div class="friendly-item-title">Very still</div><div class="friendly-item-text">Your dog was barely moving. This could mean they're resting, very focused on something, or frozen with uncertainty.</div></div>`;
+        if (p.restlessness > 5) html += `<div class="friendly-item caution"><div class="friendly-item-title">Restless behavior</div><div class="friendly-item-text">Your dog kept changing positions without settling. This can indicate discomfort, anxiety, or an unmet need.</div></div>`;
+        if (p.tailWagLikely > 3) html += `<div class="friendly-item positive"><div class="friendly-item-title">Possible tail wagging</div><div class="friendly-item-text">We detected rapid side-to-side motion that looks like tail wagging \u2014 a good sign!</div></div>`;
+    }
+
+    html += '</div>';
+
+    // ── Sound Check ──
+    html += `<div class="friendly-section">
+        <div class="friendly-section-title"><span class="fs-icon">\u{1F3A4}</span> Sound Check</div>`;
+
+    if (barkReport.barks.total === 0) {
+        html += `<div class="friendly-item info">
+            <div class="friendly-item-title">Your dog was quiet</div>
+            <div class="friendly-item-text">No barking, whining, or growling was detected during the scan. A quiet dog doesn't mean an unhappy one \u2014 many calm or content dogs are silent.</div>
+        </div>`;
+    } else {
+        const barkTypeNames = {
+            alert: 'Alert barking \u2014 trying to warn you about something',
+            play: 'Play barking \u2014 happy, excited sounds',
+            anxiety: 'Anxious barking \u2014 may be stressed or worried',
+            demand: 'Demand barking \u2014 wants something from you (food, attention, outside)',
+            aggressive: 'Aggressive barking \u2014 feeling threatened or territorial',
+            unknown: 'General vocalizations'
+        };
+        const barkDesc = barkTypeNames[barkReport.barks.dominantType] || 'Vocalizations detected';
+        html += `<div class="friendly-item ${barkReport.barks.dominantType === 'play' ? 'positive' : barkReport.barks.dominantType === 'aggressive' ? 'urgent' : 'info'}">
+            <div class="friendly-item-title">${barkReport.barks.total} bark${barkReport.barks.total !== 1 ? 's' : ''} detected</div>
+            <div class="friendly-item-text">${barkDesc}. Bark rate: ${barkReport.barks.rate} per minute.</div>
+        </div>`;
+    }
+
+    // Vocalization types
+    const vocalTypes = barkReport.vocalizations.typeDistribution || {};
+    if (vocalTypes.growl) html += `<div class="friendly-item urgent"><div class="friendly-item-title">Growling detected</div><div class="friendly-item-text">Your dog was growling ${vocalTypes.growl} time${vocalTypes.growl > 1 ? 's' : ''}. This usually means they want space or feel uncomfortable.</div></div>`;
+    if (vocalTypes.whine) html += `<div class="friendly-item caution"><div class="friendly-item-title">Whining detected</div><div class="friendly-item-text">Your dog was whining. Dogs whine when they need something, are in pain, or feel anxious.</div></div>`;
+    if (vocalTypes.howl) html += `<div class="friendly-item info"><div class="friendly-item-title">Howling detected</div><div class="friendly-item-text">Your dog howled during the scan. Howling is often a social call \u2014 your dog may be looking for company or responding to sounds.</div></div>`;
+
+    html += '</div>';
+
+    // ── What Your Dog Might Need ──
+    const needs = emotionReport.needs || [];
+    if (needs.length > 0) {
+        html += `<div class="friendly-section">
+            <div class="friendly-section-title"><span class="fs-icon">\u{2764}\u{FE0F}</span> What Your Dog Might Need</div>`;
+        needs.forEach(n => {
+            const cls = n.urgency === 'high' ? 'urgent' : n.urgency === 'moderate' ? 'caution' : 'positive';
+            html += `<div class="friendly-item ${cls}">
+                <div class="friendly-item-title">${n.need} ${n.urgency === 'high' ? '\u{203C}\u{FE0F}' : n.urgency === 'moderate' ? '\u{2757}' : '\u{2705}'}</div>
+                <div class="friendly-item-text">${n.detail}</div>
+            </div>`;
+        });
+        html += '</div>';
+    }
+
+    // ── Translation ──
+    if (translationReport.totalTranslations > 0 && translationReport.dominantMessage) {
+        html += `<div class="friendly-section">
+            <div class="friendly-section-title"><span class="fs-icon">\u{1F4AC}</span> If Your Dog Could Talk</div>
+            <div class="friendly-item positive">
+                <div class="friendly-item-title" style="font-size:16px;color:#e8c547;">"${translationReport.dominantMessage}"</div>
+                <div class="friendly-item-text">${translationReport.communicationSummary || ''}</div>
+            </div>
+        </div>`;
+    }
+
+    // ── Mood Breakdown Meters ──
+    if (emotionReport.emotionDistribution && Object.keys(emotionReport.emotionDistribution).length > 0) {
+        html += `<div class="friendly-section">
+            <div class="friendly-section-title"><span class="fs-icon">\u{1F4CA}</span> Mood Breakdown</div>`;
+
+        const emoColors = {
+            happy: '#7cb342', excited: '#ff8a65', playful: '#4ecdc4', calm: '#4caf50',
+            anxious: '#ffc107', stressed: '#ff9800', fearful: '#f44336', aggressive: '#f44336',
+            alert: '#d4a017', sad: '#9e9eff', curious: '#82b1ff'
+        };
+
+        Object.entries(emotionReport.emotionDistribution)
+            .sort((a, b) => b[1] - a[1])
+            .forEach(([emo, pct]) => {
+                if (pct > 0) {
+                    html += `<div class="friendly-meter">
+                        <div class="friendly-meter-label">${emo}</div>
+                        <div class="friendly-meter-bar"><div class="friendly-meter-fill" style="width:${pct}%;background:${emoColors[emo] || '#888'}"></div></div>
+                        <div class="friendly-meter-val">${pct}%</div>
+                    </div>`;
+                }
+            });
+        html += '</div>';
+    }
+
+    el.innerHTML = html;
 }
 
 // ── Render Emotion Report ──
@@ -824,6 +1049,27 @@ btnFlip.addEventListener('click', async () => {
     }
 });
 
+// ── Scan Mode Selector ──
+document.querySelectorAll('.scan-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.scan-mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        scanMode = btn.dataset.mode;
+    });
+});
+
+// ── Detail Toggle ──
+document.getElementById('btnToggleDetail').addEventListener('click', function() {
+    const detailEl = document.getElementById('technicalDetail');
+    if (detailEl.style.display === 'none') {
+        detailEl.style.display = 'block';
+        this.textContent = 'Hide Detailed Data';
+    } else {
+        detailEl.style.display = 'none';
+        this.textContent = 'Show Detailed Data';
+    }
+});
+
 // ── Event Listeners ──
 btnStart.addEventListener('click', startScan);
 btnStop.addEventListener('click', stopScan);
@@ -840,6 +1086,7 @@ document.getElementById('btnNewScan').addEventListener('click', () => {
     document.getElementById('signalsPanel').style.display = 'none';
     document.getElementById('needsPanel').style.display = 'none';
     document.getElementById('scanReadingsPanel').style.display = 'none';
+    document.getElementById('scanModeSelector').style.display = 'block';
     modeBadge.style.display = 'none';
     startScan();
 });

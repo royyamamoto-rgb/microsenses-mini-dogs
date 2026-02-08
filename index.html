@@ -46,6 +46,16 @@
           <canvas id="overlay"></canvas>
         </div>
 
+        <!-- Scan Mode Selector -->
+        <div class="scan-mode-selector" id="scanModeSelector">
+          <div class="scan-mode-label">SCAN MODE</div>
+          <div class="scan-mode-options">
+            <button class="scan-mode-btn active" data-mode="continuous">Continuous</button>
+            <button class="scan-mode-btn" data-mode="30">30 sec</button>
+            <button class="scan-mode-btn" data-mode="60">60 sec</button>
+          </div>
+        </div>
+
         <div class="controls">
           <button id="btnStart" class="btn btn-primary" disabled>&#x1F43E; Start Scan</button>
           <button id="btnStop" class="btn btn-danger" disabled>&#9632; Stop</button>
@@ -55,6 +65,7 @@
 
         <div id="timerSection" class="timer-display" style="display:none;">
           <div class="timer-value" id="timerValue">0:00</div>
+          <div class="timer-mode" id="timerMode"></div>
         </div>
 
         <!-- Translation Display (always visible during scan) -->
@@ -227,47 +238,48 @@
 
       <!-- Right Panel - Results Report -->
       <div class="results-panel" id="resultsPanel">
-        <div class="report-header">
-          <div class="report-title" id="reportTitle">Canine Communication Analysis Report</div>
-          <div class="report-subtitle" id="reportSubtitle">Comprehensive Behavioral &amp; Emotional Assessment</div>
+        <!-- Human-Friendly Summary -->
+        <div id="friendlyReport"></div>
+
+        <!-- Show/Hide Detailed Data -->
+        <div class="detail-toggle-wrap">
+          <button class="detail-toggle-btn" id="btnToggleDetail">Show Detailed Data</button>
         </div>
 
-        <!-- Emotion Summary -->
-        <div id="emotionResultsSection"></div>
-
-        <!-- Translation Report -->
-        <div id="translationResultsSection"></div>
-
-        <!-- Bark Analysis Results -->
-        <div id="barkResultsSection"></div>
-
-        <!-- 369 Energy Report -->
-        <div id="energyResultsSection"></div>
-
-        <!-- Scan Info -->
-        <div class="scan-info">
-          <div class="scan-info-item">
-            <div class="scan-info-label">Duration</div>
-            <div class="scan-info-value" id="scanDurationDisplay">--</div>
+        <!-- Technical Detail (hidden by default) -->
+        <div id="technicalDetail" class="technical-detail" style="display:none;">
+          <div class="report-header">
+            <div class="report-title">Technical Data</div>
+            <div class="report-subtitle">Raw scan measurements &amp; engine output</div>
           </div>
-          <div class="scan-info-item">
-            <div class="scan-info-label">Frames</div>
-            <div class="scan-info-value" id="scanFrames">--</div>
-          </div>
-          <div class="scan-info-item">
-            <div class="scan-info-label">Detections</div>
-            <div class="scan-info-value" id="scanDetections">--</div>
-          </div>
-          <div class="scan-info-item">
-            <div class="scan-info-label">369 Cycles</div>
-            <div class="scan-info-value" id="scanCycles">--</div>
+          <div id="emotionResultsSection"></div>
+          <div id="translationResultsSection"></div>
+          <div id="barkResultsSection"></div>
+          <div id="energyResultsSection"></div>
+          <div class="scan-info">
+            <div class="scan-info-item">
+              <div class="scan-info-label">Duration</div>
+              <div class="scan-info-value" id="scanDurationDisplay">--</div>
+            </div>
+            <div class="scan-info-item">
+              <div class="scan-info-label">Frames</div>
+              <div class="scan-info-value" id="scanFrames">--</div>
+            </div>
+            <div class="scan-info-item">
+              <div class="scan-info-label">Detections</div>
+              <div class="scan-info-value" id="scanDetections">--</div>
+            </div>
+            <div class="scan-info-item">
+              <div class="scan-info-label">369 Cycles</div>
+              <div class="scan-info-value" id="scanCycles">--</div>
+            </div>
           </div>
         </div>
 
         <!-- Disclaimer -->
         <div class="disclaimer">
-          BEHAVIORAL INDICATORS ONLY — Translations are based on published canine behavioral science.
-          Every dog is unique. Consult a certified animal behaviorist for persistent behavioral concerns.
+          This report is based on what the camera and microphone detected. Every dog is unique.
+          For ongoing behavioral concerns, consult a certified animal behaviorist.
         </div>
 
         <!-- Actions -->
