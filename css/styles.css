@@ -639,6 +639,63 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a0e; colo
 .realtime-metrics { grid-template-columns: repeat(4, 1fr) !important; }
 @media (max-width: 600px) { .realtime-metrics { grid-template-columns: repeat(2, 1fr) !important; } }
 
+/* ── Scientific Evidence Chain ── */
+.evidence-item {
+  margin: 8px 0;
+  padding: 12px 14px;
+  background: rgba(212, 160, 23, 0.04);
+  border: 1px solid rgba(212, 160, 23, 0.12);
+  border-left: 3px solid rgba(212, 160, 23, 0.4);
+  border-radius: 8px;
+}
+.evidence-observation {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e8c547;
+  margin-bottom: 6px;
+}
+.evidence-measurement {
+  font-size: 11px;
+  color: #82b1ff;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  background: rgba(130, 177, 255, 0.06);
+  border-radius: 4px;
+}
+.evidence-study {
+  font-size: 11px;
+  color: #ccc;
+  line-height: 1.6;
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  background: rgba(124, 179, 66, 0.05);
+  border-radius: 4px;
+}
+.evidence-citation {
+  font-size: 10px;
+  color: #888;
+  font-style: italic;
+  margin-bottom: 4px;
+}
+.evidence-conclusion {
+  font-size: 12px;
+  font-weight: 600;
+  color: #7cb342;
+  margin-top: 4px;
+}
+
+/* ── Need Science Note ── */
+.need-science-note {
+  font-size: 10px;
+  color: #aaa;
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: rgba(212, 160, 23, 0.04);
+  border-radius: 4px;
+  line-height: 1.5;
+  font-style: italic;
+}
+
 /* Safe area */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .main-container { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }

@@ -1026,6 +1026,34 @@ function renderFriendlyReport(emotionReport, translationReport, barkReport, ener
 
     html += '</div>';
 
+    // ── Scientific Evidence ──
+    // Show peer-reviewed citations backing every behavioral determination
+    if (agentReport && agentReport.evidenceChain && agentReport.evidenceChain.length > 0) {
+        html += `<div class="friendly-section">
+            <div class="friendly-section-title"><span class="fs-icon">\u{1F52C}</span> Scientific Evidence</div>`;
+
+        // Summary of the scientific basis
+        if (agentReport.behaviorState && agentReport.behaviorState.scienceSummary) {
+            html += `<div class="friendly-item info">
+                <div class="friendly-item-title">Why we determined: ${agentReport.behaviorState.label}</div>
+                <div class="friendly-item-text">${agentReport.behaviorState.scienceSummary}</div>
+            </div>`;
+        }
+
+        // Individual evidence items
+        agentReport.evidenceChain.forEach(ev => {
+            html += `<div class="evidence-item">
+                <div class="evidence-observation">\u{1F50D} ${ev.observation}</div>
+                <div class="evidence-measurement">\u{1F4CF} Measured: ${ev.measurement}</div>
+                <div class="evidence-study">\u{1F4D6} ${ev.studyEvidence}</div>
+                <div class="evidence-citation">${ev.citation}</div>
+                <div class="evidence-conclusion">\u{2192} ${ev.conclusion}</div>
+            </div>`;
+        });
+
+        html += '</div>';
+    }
+
     // ── K9 Actions Detected ──
     // Use agent-filtered actions if available — these have contradictions removed
     const actionSummary = agentReport && agentReport.filteredActions
@@ -1196,6 +1224,7 @@ function renderFriendlyReport(emotionReport, translationReport, barkReport, ener
             html += `<div class="friendly-item ${cls}">
                 <div class="friendly-item-title">${n.need} ${n.urgency === 'high' ? '\u{203C}\u{FE0F}' : n.urgency === 'moderate' ? '\u{2757}' : '\u{2705}'}</div>
                 <div class="friendly-item-text">${n.detail}</div>
+                ${n.science ? `<div class="need-science-note">\u{1F4D6} ${n.science}</div>` : ''}
             </div>`;
         });
         html += '</div>';

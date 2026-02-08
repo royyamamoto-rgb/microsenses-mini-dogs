@@ -22,6 +22,9 @@
 
 class ScanReportAgent {
     constructor() {
+        // Science database for evidence-backed determinations
+        this.scienceDB = typeof CanineScienceDB !== 'undefined' ? new CanineScienceDB() : null;
+
         // Behavioral states and their incompatible actions
         // If the dominant state is "resting", these actions are physically
         // impossible and must be filtered as sensor noise artifacts
@@ -100,6 +103,16 @@ class ScanReportAgent {
         // Step 6: Build vision analysis summary for the report
         const visionInsights = this._buildVisionInsights(visionSummary, behaviorState);
 
+        // Step 7: Build science-backed evidence chain
+        const evidenceChain = this._buildEvidenceChain(
+            behaviorState, emotionReport, barkReport, visionSummary
+        );
+
+        // Step 8: Add science summary to behavioral state
+        if (this.scienceDB) {
+            behaviorState.scienceSummary = this.scienceDB.getScienceSummary(behaviorState.state);
+        }
+
         return {
             behaviorState,
             filteredActions,
@@ -107,6 +120,7 @@ class ScanReportAgent {
             cleanPatterns,
             filteredSignals,
             visionInsights,
+            evidenceChain,
             // Pass through original data for technical detail section
             raw: {
                 emotionReport,
@@ -458,6 +472,58 @@ class ScanReportAgent {
         }
 
         return insights.length > 0 ? insights : null;
+    }
+    /**
+     * Build a science-backed evidence chain for the report.
+     * Each item links a measured signal to peer-reviewed research.
+     */
+    _buildEvidenceChain(behaviorState, emotionReport, barkReport, visionSummary) {
+        if (!this.scienceDB) return [];
+
+        // Gather measurements for the science database
+        const posture = emotionReport.posture ? emotionReport.posture.current : 'unknown';
+        const patterns = emotionReport.patterns || {};
+        const avgSpeed = emotionReport.movement ? emotionReport.movement.avgSpeed : 0;
+        const hasBarks = barkReport && barkReport.barks && barkReport.barks.total > 0;
+        const vocalFrames = barkReport && barkReport.vocalizations
+            ? Object.values(barkReport.vocalizations.typeDistribution || {}).reduce((s, v) => s + v, 0)
+            : 0;
+        const hasVocalization = hasBarks || vocalFrames > 10;
+
+        // Determine dominant vocalization type
+        let vocalType = 'silent';
+        if (hasVocalization && barkReport) {
+            if (hasBarks) {
+                vocalType = 'bark';
+            } else if (barkReport.vocalizations && barkReport.vocalizations.typeDistribution) {
+                const dist = barkReport.vocalizations.typeDistribution;
+                const top = Object.entries(dist).sort((a, b) => b[1] - a[1])[0];
+                if (top) vocalType = top[0];
+            }
+        }
+
+        const measurements = {
+            posture: posture,
+            stillness: patterns.stillness || 0,
+            avgSpeed: avgSpeed,
+            hasVocalization: hasVocalization,
+            vocalType: vocalType,
+            barkPitch: barkReport && barkReport.barks ? barkReport.barks.avgFrequency : 0,
+            barkRate: barkReport && barkReport.barks ? barkReport.barks.rate : 0,
+            barkType: barkReport && barkReport.barks ? barkReport.barks.dominantType : 'unknown',
+            hasTailWag: visionSummary ? visionSummary.peakTailWag >= 5 : false,
+            tailWagScore: visionSummary ? visionSummary.peakTailWag : 0,
+            hasTension: visionSummary ? visionSummary.avgTension > 40 : false,
+            tensionScore: visionSummary ? visionSummary.avgTension : 0,
+            framesAnalyzed: emotionReport.framesAnalyzed || 0,
+            pixelBodyState: visionSummary ? visionSummary.dominantBodyState : 'unknown',
+            pacing: patterns.pacing || 0,
+            bouncing: patterns.bouncing || 0,
+            playBows: patterns.playBows || 0,
+            restlessness: patterns.restlessness || 0
+        };
+
+        return this.scienceDB.getEvidenceForState(behaviorState.state, measurements);
     }
 }
 
