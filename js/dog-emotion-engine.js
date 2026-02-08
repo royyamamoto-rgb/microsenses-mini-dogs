@@ -315,6 +315,18 @@ class DogEmotionEngine {
 
     _classifyActions(movement, barkData) {
         this.activeActions = [];
+
+        // ── WARM-UP GATE ──
+        // Skip action classification for the first 20 frames.
+        // EMA bounding box smoothing needs ~7 frames to stabilize, and
+        // stillness detection needs ~30 frames to build confidence.
+        // Early frames produce bounding box jitter that creates phantom
+        // actions like "trotting" and "restless" on a perfectly still dog.
+        if (this.frameHistory.length < 20) {
+            this.currentAction = 'observing';
+            return;
+        }
+
         const actions = [];
         const speed = movement.speed;
         const avgSpeed = this.movementHistory.length > 0

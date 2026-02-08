@@ -52,6 +52,7 @@ const barkEngine = new BarkAnalysisEngine();
 const visionAnalyzer = new DogVisionAnalyzer();
 const emotionEngine = new DogEmotionEngine();
 const translator = new CanineTranslator();
+const reportAgent = new ScanReportAgent();
 let micAvailable = false;
 
 // ── Utility ──
@@ -824,6 +825,15 @@ function completeScan() {
     const barkReport = barkEngine.fullAnalysis();
     const translationReport = translator.fullReport();
     const energyReport = engine369.fullReport();
+    const visionSummary = visionAnalyzer.getSummary();
+
+    // ── SCAN REPORT AGENT ──
+    // Post-process all raw data for coherence and accuracy.
+    // This filters contradictory actions, validates emotions,
+    // and ensures the report matches what the camera actually saw.
+    const agentReport = reportAgent.analyze(
+        emotionReport, barkReport, energyReport, visionSummary
+    );
 
     // Clean up bark engine
     barkEngine.destroy();
@@ -843,8 +853,8 @@ function completeScan() {
     document.getElementById('scanDetections').textContent = dogDetectionCount;
     document.getElementById('scanCycles').textContent = energyReport.totalCycles;
 
-    // Render human-friendly report
-    renderFriendlyReport(emotionReport, translationReport, barkReport, energyReport, elapsed);
+    // Render human-friendly report using agent-validated data
+    renderFriendlyReport(emotionReport, translationReport, barkReport, energyReport, elapsed, agentReport);
 
     // Render technical detail (hidden by default)
     renderEmotionReport(emotionReport);
@@ -863,11 +873,14 @@ function completeScan() {
 }
 
 // ── Human-Friendly Report ──
-function renderFriendlyReport(emotionReport, translationReport, barkReport, energyReport, elapsed) {
+function renderFriendlyReport(emotionReport, translationReport, barkReport, energyReport, elapsed, agentReport) {
     const el = document.getElementById('friendlyReport');
     if (!el) return;
 
-    const emotion = emotionReport.dominantEmotion || 'unknown';
+    // Use agent-validated emotion if available, otherwise fall back to raw
+    const emotion = agentReport && agentReport.validatedEmotion
+        ? agentReport.validatedEmotion.emotion
+        : (emotionReport.dominantEmotion || 'unknown');
     const wellbeing = emotionReport.wellbeing || 50;
     const confidence = emotionReport.confidence || 0;
     const stability = emotionReport.stability || 0;
@@ -892,6 +905,11 @@ function renderFriendlyReport(emotionReport, translationReport, barkReport, ener
     };
 
     const mood = moodMap[emotion] || moodMap.unknown;
+
+    // If agent identified a specific behavioral state, use its description
+    if (agentReport && agentReport.behaviorState && agentReport.behaviorState.confidence >= 75) {
+        mood.sub = agentReport.behaviorState.description;
+    }
 
     // Wellbeing color
     const wbColor = wellbeing >= 65 ? '#7cb342' : wellbeing <= 35 ? '#f44336' : '#ffc107';
@@ -947,9 +965,19 @@ function renderFriendlyReport(emotionReport, translationReport, barkReport, ener
         <div class="friendly-item-text">Movement speed averaged ${movement.avgSpeed} (${movement.energyLevel} energy).</div>
     </div>`;
 
-    // Detected patterns in plain language
-    if (emotionReport.patterns) {
-        const p = emotionReport.patterns;
+    // Vision insights from pixel analysis (if available from agent)
+    if (agentReport && agentReport.visionInsights) {
+        agentReport.visionInsights.forEach(insight => {
+            html += `<div class="friendly-item info">
+                <div class="friendly-item-title">${insight.title}</div>
+                <div class="friendly-item-text">${insight.detail}</div>
+            </div>`;
+        });
+    }
+
+    // Detected patterns in plain language — use agent-filtered patterns
+    if (agentReport && agentReport.cleanPatterns) {
+        const p = agentReport.cleanPatterns;
         if (p.pacing > 3) html += `<div class="friendly-item caution"><div class="friendly-item-title">Pacing detected</div><div class="friendly-item-text">Your dog was walking back and forth repeatedly. This can mean they need to go outside, are anxious, or need something.</div></div>`;
         if (p.bouncing > 2) html += `<div class="friendly-item positive"><div class="friendly-item-title">Bouncing / jumping around</div><div class="friendly-item-text">Your dog was bouncing with excitement. This usually means they're happy and want to play!</div></div>`;
         if (p.playBows > 0) html += `<div class="friendly-item positive"><div class="friendly-item-title">Play bow detected!</div><div class="friendly-item-text">Your dog dropped their front end down \u2014 this is a universal "let's play!" signal in the dog world.</div></div>`;
@@ -965,7 +993,10 @@ function renderFriendlyReport(emotionReport, translationReport, barkReport, ener
     html += '</div>';
 
     // ── K9 Actions Detected ──
-    const actionSummary = emotionReport.actionSummary;
+    // Use agent-filtered actions if available — these have contradictions removed
+    const actionSummary = agentReport && agentReport.filteredActions
+        ? agentReport.filteredActions
+        : emotionReport.actionSummary;
     if (actionSummary && actionSummary.topActions && actionSummary.topActions.length > 0) {
         html += `<div class="friendly-section">
             <div class="friendly-section-title"><span class="fs-icon">\u{1F415}</span> K9 Actions Detected</div>
@@ -1040,13 +1071,14 @@ function renderFriendlyReport(emotionReport, translationReport, barkReport, ener
         };
 
         // Filter out generic/low-confidence actions
-        // Only show actions detected in at least 5% of frames to avoid reporting noise
+        // Agent-filtered data already has contradictions removed and 8% threshold applied.
+        // For raw data (no agent), apply 8% threshold here.
         const skipInGrid = ['observing', 'stationary'];
         const frames = emotionReport.framesAnalyzed || 1;
         actionSummary.topActions.forEach(([action, count]) => {
             if (skipInGrid.includes(action)) return;
             const pct = Math.round((count / frames) * 100);
-            if (pct < 5) return; // Skip low-confidence detections
+            if (!agentReport && pct < 8) return; // 8% threshold for raw data
             const desc = actionDescriptions[action] || action.replace(/-/g, ' ');
             html += `<div class="action-report-item">
                 <div class="action-report-name">${action.replace(/-/g, ' ')}</div>
