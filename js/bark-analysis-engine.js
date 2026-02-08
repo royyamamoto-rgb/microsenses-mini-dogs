@@ -88,14 +88,14 @@ class BarkAnalysisEngine {
         this.HOWL_FREQ_MIN = 150;
         this.HOWL_FREQ_MAX = 780;
 
-        // Detection thresholds — STRICT to avoid false positives from ambient noise
-        this.VAD_THRESHOLD = 0.03;  // Sound activity (raised from 0.02)
-        this.BARK_ONSET_THRESHOLD = 0.15;  // Sharp onset for bark detection (raised from 0.10)
-        this.BARK_MIN_DURATION = 3;  // Min frames for a bark (~100ms)
+        // Detection thresholds — balanced to detect real barks but not ambient noise
+        this.VAD_THRESHOLD = 0.025; // Sound activity
+        this.BARK_ONSET_THRESHOLD = 0.10; // Sharp onset for bark detection
+        this.BARK_MIN_DURATION = 2;  // Min frames for a bark (~66ms)
         this.BARK_MAX_DURATION = 15; // Max frames for single bark (~500ms)
-        this.GROWL_MIN_DURATION = 25; // Growl must be sustained (raised from 15)
-        this.HOWL_MIN_DURATION = 45;  // Howl is long sustained (raised from 30)
-        this.MIN_VOCALIZATION_RMS = 0.08; // Minimum RMS to classify as any dog vocalization
+        this.GROWL_MIN_DURATION = 20; // Growl must be sustained
+        this.HOWL_MIN_DURATION = 35;  // Howl is long sustained
+        this.MIN_VOCALIZATION_RMS = 0.04; // Minimum RMS to classify as any dog vocalization
 
         // Inter-bark interval tracking (Pongrácz et al., 2005)
         // IBI is the most scientifically validated bark parameter
@@ -236,9 +236,9 @@ class BarkAnalysisEngine {
         }
 
         // Sound activity detection (above baseline + threshold)
-        // Must be 5x above baseline to be considered sound activity (raised from 3x)
+        // Must be 3.5x above baseline to be considered sound activity
         const effectiveThreshold = this.baselineEstablished
-            ? Math.max(this.VAD_THRESHOLD, this.baselineRMS * 5)
+            ? Math.max(this.VAD_THRESHOLD, this.baselineRMS * 3.5)
             : this.VAD_THRESHOLD;
 
         this.isSoundActive = rms > effectiveThreshold;
@@ -384,15 +384,15 @@ class BarkAnalysisEngine {
             return;
         }
 
-        // STRICT: Sound must be significantly loud to be classified as ANY dog vocalization
-        // This prevents ambient room noise (TV, speech, fans, HVAC) from being classified
+        // Sound must be above minimum RMS to be classified as dog vocalization
+        // This filters very quiet ambient noise but allows real barking
         if (rms < this.MIN_VOCALIZATION_RMS) {
             this.vocalizationType = 'ambient';
             return;
         }
 
-        // Must be well above baseline — not just barely above
-        if (this.baselineEstablished && rms < this.baselineRMS * 8) {
+        // Must be clearly above baseline — real dog sounds are noticeably louder
+        if (this.baselineEstablished && rms < this.baselineRMS * 4) {
             this.vocalizationType = 'ambient';
             return;
         }
@@ -410,21 +410,19 @@ class BarkAnalysisEngine {
         const inDogRange = dominantFreq >= this.DOG_FREQ_MIN && dominantFreq <= this.DOG_FREQ_MAX;
 
         // Classification logic based on acoustic research
-        // Each type requires BOTH frequency match AND sufficient RMS
-        if (inDogRange && dominantFreq < this.GROWL_FREQ_MAX && spectralTilt > 0.3 && soundDuration > this.GROWL_MIN_DURATION && rms > 0.12) {
+        if (inDogRange && dominantFreq < this.GROWL_FREQ_MAX && spectralTilt > 0.3 && soundDuration > this.GROWL_MIN_DURATION && rms > 0.06) {
             this.vocalizationType = 'growl';
-        } else if (inDogRange && dominantFreq > this.WHINE_FREQ_MIN && spectralTilt < -0.1 && soundDuration > 15 && rms > 0.10) {
+        } else if (inDogRange && dominantFreq > this.WHINE_FREQ_MIN && spectralTilt < -0.1 && soundDuration > 10 && rms > 0.05) {
             this.vocalizationType = 'whine';
         } else if (inDogRange && dominantFreq >= this.HOWL_FREQ_MIN && dominantFreq <= this.HOWL_FREQ_MAX
-            && soundDuration > this.HOWL_MIN_DURATION && this._isFrequencyModulated() && rms > 0.12) {
+            && soundDuration > this.HOWL_MIN_DURATION && this._isFrequencyModulated() && rms > 0.06) {
             this.vocalizationType = 'howl';
-        } else if (inDogRange && onset > 0.3 && rms > this.BARK_ONSET_THRESHOLD) {
+        } else if (inDogRange && onset > 0.2 && rms > this.BARK_ONSET_THRESHOLD) {
             this.vocalizationType = 'bark';
-        } else if (inDogRange && onset > 0.5 && soundDuration < 3 && dominantFreq > 800 && rms > 0.15) {
+        } else if (inDogRange && onset > 0.4 && soundDuration < 3 && dominantFreq > 800 && rms > 0.08) {
             this.vocalizationType = 'yelp';
         } else {
             // Sound detected but not matching dog vocalization patterns — classify as ambient
-            // Do NOT default to bark — ambient noise (TV, speech, fans) should not be counted
             this.vocalizationType = 'ambient';
         }
     }

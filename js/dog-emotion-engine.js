@@ -205,61 +205,43 @@ class DogEmotionEngine {
 
         const curr = this.frameHistory[this.frameHistory.length - 1];
 
-        // Use AVERAGED aspect ratio over last 20 frames for stability
-        // Single-frame AR is noisy due to COCO-SSD bounding box jitter
-        const recentFrames = this.frameHistory.slice(-20);
+        // Use AVERAGED aspect ratio over last 8 frames for stability
+        // Short window so posture responds quickly to real changes
+        const windowSize = Math.min(8, this.frameHistory.length);
+        const recentFrames = this.frameHistory.slice(-windowSize);
         const avgAR = recentFrames.reduce((s, f) => s + f.aspectRatio, 0) / recentFrames.length;
-
-        // Also compute averaged height for reference
-        const avgHeight = recentFrames.reduce((s, f) => s + f.box.height, 0) / recentFrames.length;
-        const avgWidth = recentFrames.reduce((s, f) => s + f.box.width, 0) / recentFrames.length;
 
         let posture = 'stand';
 
-        if (avgAR >= 1.8) {
-            // Very wide rectangle — definitely in down position
+        // Posture classification based ONLY on aspect ratio
+        // NO stillness overrides — stillness does NOT determine posture
+        // A standing-still dog should still show "stand"
+        //
+        // AR ranges (width/height):
+        //   >= 2.0  = definitely down (very wide, very flat)
+        //   1.5-2.0 = likely down (wide and low)
+        //   1.0-1.5 = stand (normal standing proportions, side or front view)
+        //   0.5-1.0 = sit (taller than wide)
+        //   < 0.5   = sit upright / beg
+
+        if (avgAR >= 2.0) {
             posture = 'down';
-        } else if (avgAR >= 1.4) {
-            // Wide rectangle — could be down or stand
-            // If dog is also still, more likely down
-            if (this.patterns.stillness > 5 || avgWidth / Math.max(1, avgHeight) >= 1.5) {
-                posture = 'down';
-            } else {
-                posture = 'stand';
-            }
-        } else if (avgAR >= 1.0 && avgAR < 1.4) {
-            // Roughly square — standing (front view) or transitioning
+        } else if (avgAR >= 1.5) {
+            posture = 'down';
+        } else if (avgAR >= 0.8) {
             posture = 'stand';
-        } else if (avgAR >= 0.5 && avgAR < 1.0) {
-            // Taller than wide — sitting (hindquarters down, front up)
+        } else if (avgAR >= 0.4) {
             posture = 'sit';
-        } else if (avgAR < 0.5) {
-            // Very tall and narrow — sitting upright or begging
+        } else {
             posture = 'sit';
         }
 
-        // Check for crouch — rapid decrease in height from stand
+        // Check for crouch — rapid decrease in height
         if (this.frameHistory.length >= 8) {
             const prev8 = this.frameHistory.slice(-8);
             const heightRatio = curr.box.height / Math.max(1, prev8[0].box.height);
-            if (heightRatio < 0.65 && prev8[0].aspectRatio < 1.5) {
+            if (heightRatio < 0.6 && prev8[0].aspectRatio < 1.5) {
                 posture = 'crouch';
-            }
-        }
-
-        // Stillness + wide averaged AR = more likely down than stand
-        if (this.patterns.stillness > 8 && avgAR >= 1.3) {
-            posture = 'down';
-        }
-
-        // STABILITY: Only change posture if the new posture has been consistent
-        // for at least 5 frames in the recent history. Prevents single-frame flickers.
-        if (this.postureHistory.length >= 5 && posture !== this.currentPosture) {
-            const recent5Postures = this.postureHistory.slice(-5).map(p => p.posture);
-            const currentPostureCount = recent5Postures.filter(p => p === this.currentPosture).length;
-            // If the current posture is still dominant in recent history, don't change
-            if (currentPostureCount >= 3) {
-                posture = this.currentPosture;
             }
         }
 
