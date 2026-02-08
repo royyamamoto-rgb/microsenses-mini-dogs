@@ -105,12 +105,16 @@ class DogVisionAnalyzer {
                 diff[i] = Math.abs(this.currFrame[i] - this.prevFrame[i]);
                 totalDiff += diff[i];
 
-                if (diff[i] < 0.008) {
-                    stillPixels++;
-                } else if (diff[i] < 0.06) {
-                    microVibPixels++;
+                // NOISE FLOOR: Mobile camera sensors produce 2-5% pixel noise
+                // between frames (sensor noise + JPEG/H.264 compression artifacts).
+                // Threshold raised from 0.8% to 2.5% to prevent camera noise
+                // from being misclassified as body micro-vibration/trembling.
+                if (diff[i] < 0.025) {
+                    stillPixels++;         // < 2.5% change = camera noise = still
+                } else if (diff[i] < 0.10) {
+                    microVibPixels++;      // 2.5-10% = real micro-vibration
                 } else {
-                    macroMotionPixels++;
+                    macroMotionPixels++;   // > 10% = real macro movement
                 }
             }
 
@@ -263,7 +267,8 @@ class DogVisionAnalyzer {
             const d1 = values[i - 1] - values[i - 2];
             const d2 = values[i] - values[i - 1];
             // Alternating direction = oscillation
-            if ((d1 > 0.003 && d2 < -0.003) || (d1 < -0.003 && d2 > 0.003)) {
+            // Threshold raised from 0.003 to 0.008 to filter camera noise
+            if ((d1 > 0.008 && d2 < -0.008) || (d1 < -0.008 && d2 > 0.008)) {
                 oscillations++;
             }
         }
@@ -272,12 +277,18 @@ class DogVisionAnalyzer {
 
     // ── Body Tension (Trembling/Vibrating) ──
     _computeTension(microVibRatio, macroMotionRatio) {
-        // Trembling: many pixels with small motion, few with large motion
-        // A tense dog shows widespread micro-vibration without macro movement
-        if (microVibRatio > 0.4 && macroMotionRatio < 0.05) return 90; // Severe trembling
-        if (microVibRatio > 0.25 && macroMotionRatio < 0.08) return 60; // Tense/shaking
-        if (microVibRatio > 0.15 && macroMotionRatio < 0.10) return 35; // Mild tension
-        if (microVibRatio > 0.08) return 15; // Slight
+        // Trembling: many pixels with small motion, few with large motion.
+        // A tense dog shows widespread micro-vibration without macro movement.
+        //
+        // NOISE FLOOR: Even after raising the still-pixel threshold to 2.5%,
+        // some residual camera noise (~5-10% of pixels) will still register as
+        // micro-vibration. Subtract this noise floor before evaluating tension.
+        const adjustedMicroVib = Math.max(0, microVibRatio - 0.08);
+
+        if (adjustedMicroVib > 0.30 && macroMotionRatio < 0.05) return 90; // Severe trembling
+        if (adjustedMicroVib > 0.18 && macroMotionRatio < 0.08) return 60; // Tense/shaking
+        if (adjustedMicroVib > 0.10 && macroMotionRatio < 0.10) return 35; // Mild tension
+        if (adjustedMicroVib > 0.04) return 15; // Slight
         return 0; // Relaxed
     }
 
@@ -291,8 +302,9 @@ class DogVisionAnalyzer {
         const bodyMotion = bodyZones.reduce((s, z) => s + z.motion, 0) / Math.max(1, bodyZones.length);
 
         // Head is more active than body = focused attention, looking around
-        if (topMotion > bodyMotion * 1.5 && topMotion > 0.01) return 'active';
-        if (topMotion > 0.005) return 'slight';
+        // Thresholds raised to filter camera noise on mobile sensors
+        if (topMotion > bodyMotion * 2.0 && topMotion > 0.02) return 'active';
+        if (topMotion > 0.012) return 'slight';
         return 'still';
     }
 
@@ -432,13 +444,16 @@ class DogVisionAnalyzer {
 
     // ── Body State Interpretation ──
     _interpretBodyState(overallMotion, microVib, macroMotion, tension, tailWag) {
-        if (macroMotion > 0.15) return 'very-active';
-        if (macroMotion > 0.06) return 'active';
+        // Thresholds raised to account for camera sensor noise on mobile devices.
+        // A still scene on a mobile camera can produce overallMotion ~0.005-0.01
+        // and microVib ~0.03-0.08 purely from sensor/compression noise.
+        if (macroMotion > 0.20) return 'very-active';
+        if (macroMotion > 0.10) return 'active';
         if (tension > 50) return 'tense';
         if (tailWag >= 3) return 'wagging';
-        if (microVib > 0.15) return 'vibrating';
-        if (overallMotion < 0.003 && microVib < 0.03) return 'very-still';
-        if (overallMotion < 0.01) return 'calm';
+        if (microVib > 0.20) return 'vibrating';
+        if (overallMotion < 0.008 && microVib < 0.06) return 'very-still';
+        if (overallMotion < 0.015) return 'calm';
         return 'slight-motion';
     }
 

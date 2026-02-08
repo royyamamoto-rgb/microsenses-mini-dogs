@@ -508,8 +508,11 @@ async function processFrame() {
             // This replaces just bounding box speed (which is near zero for still dogs)
             const bbSpeed = emotionAssess.movement ? emotionAssess.movement.avgSpeed : 0;
             const pixelVib = pixelData ? pixelData.pixelVibration : 0;
-            // Combine bounding box movement with pixel micro-vibration
-            const realVibration = Math.max(bbSpeed, pixelVib * 2);
+            // Apply noise floor: mobile camera sensors produce pixelVibration ~2-8
+            // purely from sensor noise. Only values above 8 represent real vibration.
+            // Removed the * 2 multiplier that was amplifying camera noise.
+            const cleanPixelVib = pixelVib > 8 ? pixelVib : 0;
+            const realVibration = Math.max(bbSpeed, cleanPixelVib);
 
             const creationInput = {
                 movement: {

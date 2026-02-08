@@ -767,7 +767,7 @@ class DogEmotionEngine {
             if (px.tailWagScore >= 2) {
                 this.detectedSignals.push({ type: 'vision', signal: 'Tail wagging detected', detail: `Oscillating motion in body edges — wag score: ${px.tailWagScore}`, source: 'pixel motion analysis' });
             }
-            if (px.tensionScore > 30) {
+            if (px.tensionScore > 35) {
                 this.detectedSignals.push({ type: 'vision', signal: 'Body tension detected', detail: `Widespread micro-vibration without major movement — tension: ${px.tensionScore}%`, source: 'pixel micro-vibration analysis' });
             }
             if (px.headActivity === 'active') {
@@ -779,7 +779,7 @@ class DogEmotionEngine {
             if (px.bodyState === 'very-still') {
                 this.detectedSignals.push({ type: 'vision', signal: 'Very still (pixel-confirmed)', detail: 'Minimal pixel changes detected — dog is truly motionless', source: 'pixel motion analysis' });
             }
-            if (px.microVibration > 0.15) {
+            if (px.microVibration > 0.18) {
                 this.detectedSignals.push({ type: 'vision', signal: 'Micro-vibrations detected', detail: `${Math.round(px.microVibration * 100)}% of body pixels showing subtle motion — energy/trembling`, source: 'pixel micro-vibration' });
             }
         }
@@ -1240,13 +1240,16 @@ class DogEmotionEngine {
             }
 
             // Micro-vibration without macro motion = tense/frozen
-            if (px.microVibration > 0.2 && px.macroMotion < 0.03) {
+            // Threshold raised: camera noise produces microVibration ~0.03-0.08
+            // Real trembling produces 0.15+
+            if (px.microVibration > 0.15 && px.macroMotion < 0.03) {
                 scores.anxious += 12;
                 scores.fearful += 8;
             }
 
             // Very still at pixel level = truly calm or resting
-            if (px.overallMotion < 0.003 && px.microVibration < 0.03) {
+            // Thresholds raised to account for camera noise (noise floor ~0.005-0.01)
+            if (px.overallMotion < 0.008 && px.microVibration < 0.06) {
                 if (this.currentPosture === 'down') {
                     scores.calm += 15;
                 } else {
@@ -1256,10 +1259,11 @@ class DogEmotionEngine {
             }
 
             // Active at pixel level = energetic
-            if (px.macroMotion > 0.12) {
+            // Thresholds raised to prevent camera noise from triggering
+            if (px.macroMotion > 0.18) {
                 scores.excited += 12;
                 scores.playful += 8;
-            } else if (px.macroMotion > 0.06) {
+            } else if (px.macroMotion > 0.10) {
                 scores.happy += 8;
                 scores.curious += 5;
             }
@@ -1284,6 +1288,32 @@ class DogEmotionEngine {
             }
         }
 
+        // ── RESTING STATE PROTECTION ──
+        // When posture, stillness, and silence ALL unambiguously say the dog
+        // is resting, this MUST be respected. Camera noise, 369 energy artifacts,
+        // and pixel noise can corrupt scores above — this final guard ensures
+        // a sleeping/resting dog is never reported as "excited" or "playful".
+        const isClearlyResting = this.currentPosture === 'down' &&
+                                 this.patterns.stillness > 10 &&
+                                 !isVocalizing;
+        const isStandingStillSilent = this.currentPosture === 'stand' &&
+                                       this.patterns.stillness > 15 &&
+                                       !isVocalizing;
+
+        if (isClearlyResting) {
+            // Dog is lying down, still, and silent = calm/resting, period.
+            scores.calm = Math.max(scores.calm, 65);
+            scores.excited = Math.min(scores.excited, 5);
+            scores.playful = Math.min(scores.playful, 5);
+            scores.aggressive = Math.min(scores.aggressive, 5);
+        } else if (isStandingStillSilent) {
+            // Dog is standing still and silent = alert/watchful, not excited
+            scores.calm = Math.max(scores.calm, 30);
+            scores.alert = Math.max(scores.alert, 25);
+            scores.excited = Math.min(scores.excited, 10);
+            scores.playful = Math.min(scores.playful, 8);
+        }
+
         // ── Temporal patterns ──
         if (this.emotionHistory.length > 30) {
             const recent = this.emotionHistory.slice(-30);
@@ -1293,11 +1323,12 @@ class DogEmotionEngine {
         }
 
         // ── TEMPORAL MOMENTUM ──
-        // Give a stability bonus to the current emotion to prevent flickering
+        // Give a stability bonus to the current emotion to prevent flickering.
+        // Reduced from 12 to 8 to prevent locking into wrong emotions early.
         if (this.emotionHistory.length > 5) {
             const lastEmotion = this.emotionHistory[this.emotionHistory.length - 1].emotion;
             if (scores[lastEmotion] !== undefined) {
-                scores[lastEmotion] += 12; // Stability bonus
+                scores[lastEmotion] += 8; // Stability bonus (reduced from 12)
             }
         }
 
