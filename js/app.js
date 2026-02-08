@@ -49,6 +49,7 @@ let energyData = [];
 // ── Engines ──
 const engine369 = new Engine369();
 const barkEngine = new BarkAnalysisEngine();
+const visionAnalyzer = new DogVisionAnalyzer();
 const emotionEngine = new DogEmotionEngine();
 const translator = new CanineTranslator();
 let micAvailable = false;
@@ -276,6 +277,12 @@ function updateScanReadings(emotionAssess, barkAssess) {
     setReading('rdStillness', rd.stillnessScore);
     setReading('rdFrames', rd.framesAnalyzed);
 
+    // Pixel vision readings
+    setReading('rdPixEnergy', rd.pixelEnergy || 0);
+    setReading('rdPixVib', rd.pixelVibration || 0);
+    setReading('rdTension', rd.bodyTension || 0);
+    setReading('rdTailWag', rd.tailWag || 0);
+
     // Audio readings — show raw mic level (not just when vocalizing)
     if (barkAssess) {
         // Show raw RMS as percentage so user can see mic is picking up sound
@@ -480,17 +487,33 @@ async function processFrame() {
             lastDogDetection = dog;
             const [bx, by, bw, bh] = dog.bbox;
 
-            // Process through emotion engine
+            // ── Pixel-Level Vision Analysis ──
+            // Analyze actual pixel data within the dog's bounding box
+            // This gives us micro-vibrations, tail wag, tension, head movement
+            const pixelData = visionAnalyzer.analyze(video, { x: bx, y: by, width: bw, height: bh });
+
+            // Process through emotion engine (now with pixel analysis data)
             const emotionAssess = emotionEngine.processFrame(
                 { box: { x: bx, y: by, width: bw, height: bh }, confidence: dog.score },
                 barkAssess
             );
 
+            // Feed pixel analysis into emotion engine for next frame
+            emotionEngine.setPixelAnalysis(pixelData);
+
             // ── 369 Pipeline ──
             // Phase 3: Creation — raw input
+            // Use pixel-level vibration data for MORE ACCURATE energy measurement
+            // pixelVibration = actual micro-vibrations from camera pixels
+            // This replaces just bounding box speed (which is near zero for still dogs)
+            const bbSpeed = emotionAssess.movement ? emotionAssess.movement.avgSpeed : 0;
+            const pixelVib = pixelData ? pixelData.pixelVibration : 0;
+            // Combine bounding box movement with pixel micro-vibration
+            const realVibration = Math.max(bbSpeed, pixelVib * 2);
+
             const creationInput = {
                 movement: {
-                    magnitude: emotionAssess.movement ? emotionAssess.movement.avgSpeed : 0
+                    magnitude: realVibration
                 },
                 audio: {
                     dominantFreq: barkAssess ? barkAssess.dominantFreq : 0
@@ -657,7 +680,7 @@ function resetUIContent() {
     // Live scan readings
     const readingIds = ['rdMovSpeed','rdBodyW','rdBodyH','rdAspect','rdSizeChange','rdAccel',
                         'rdHoriz','rdVert','rdArea','rdStillness','rdAudioLvl','rdAudioFreq',
-                        'rdBarkRate','rdFrames'];
+                        'rdBarkRate','rdFrames','rdPixEnergy','rdPixVib','rdTension','rdTailWag'];
     readingIds.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = '0';
@@ -727,6 +750,7 @@ async function startScan() {
     // Reset all engines
     engine369.clearAll();
     barkEngine.clearAll();
+    visionAnalyzer.clearAll();
     emotionEngine.clearAll();
     translator.clearAll();
 

@@ -99,16 +99,25 @@ class DogEmotionEngine {
 
         // ── 369 Energy State (fed from Engine369 each frame) ──
         this.energyState = null;
+
+        // ── Pixel Analysis State (fed from DogVisionAnalyzer each frame) ──
+        this.pixelAnalysis = null;
     }
 
     /**
      * Set 369 energy state from Engine369 completion metrics.
-     * Called from app.js after each 369 pipeline cycle.
-     * Used by _assessEmotion() to integrate micro vibrations,
-     * energy, vibration, and frequency into emotion scoring.
      */
     setEnergyState(metrics) {
         this.energyState = metrics;
+    }
+
+    /**
+     * Set pixel-level vision analysis data from DogVisionAnalyzer.
+     * This provides REAL micro-vibration, tail wag, tension, and
+     * zone-specific motion data measured from actual camera pixels.
+     */
+    setPixelAnalysis(data) {
+        this.pixelAnalysis = data;
     }
 
     processFrame(detection, barkData) {
@@ -726,6 +735,29 @@ class DogEmotionEngine {
             this.detectedSignals.push({ type: 'pattern', signal: 'Jumping detected', detail: 'Upward movement bursts — excitement, greeting, or demand', source: 'rapid vertical position changes' });
         }
 
+        // Pixel-level vision signals
+        if (this.pixelAnalysis) {
+            const px = this.pixelAnalysis;
+            if (px.tailWagScore >= 2) {
+                this.detectedSignals.push({ type: 'vision', signal: 'Tail wagging detected', detail: `Oscillating motion in body edges — wag score: ${px.tailWagScore}`, source: 'pixel motion analysis' });
+            }
+            if (px.tensionScore > 30) {
+                this.detectedSignals.push({ type: 'vision', signal: 'Body tension detected', detail: `Widespread micro-vibration without major movement — tension: ${px.tensionScore}%`, source: 'pixel micro-vibration analysis' });
+            }
+            if (px.headActivity === 'active') {
+                this.detectedSignals.push({ type: 'vision', signal: 'Active head movement', detail: 'Head region moving more than body — looking around or scanning', source: 'pixel zone analysis' });
+            }
+            if (px.bodyState === 'very-active') {
+                this.detectedSignals.push({ type: 'vision', signal: 'High body activity', detail: 'Large areas of visible motion across body', source: 'pixel motion analysis' });
+            }
+            if (px.bodyState === 'very-still') {
+                this.detectedSignals.push({ type: 'vision', signal: 'Very still (pixel-confirmed)', detail: 'Minimal pixel changes detected — dog is truly motionless', source: 'pixel motion analysis' });
+            }
+            if (px.microVibration > 0.15) {
+                this.detectedSignals.push({ type: 'vision', signal: 'Micro-vibrations detected', detail: `${Math.round(px.microVibration * 100)}% of body pixels showing subtle motion — energy/trembling`, source: 'pixel micro-vibration' });
+            }
+        }
+
         // Audio signals
         if (barkData && barkData.isVocalizing) {
             this.detectedSignals.push({ type: 'audio', signal: `${barkData.currentType} detected`, detail: `Frequency: ${barkData.dominantFreq}Hz | Intensity: ${barkData.intensity}% | Rate: ${barkData.barkRate}/min`, source: 'microphone spectral analysis' });
@@ -1153,6 +1185,79 @@ class DogEmotionEngine {
             }
         }
 
+        // ── PIXEL-LEVEL VISION ANALYSIS ──
+        // Uses REAL micro-vibration, tail wag, body tension data
+        // measured from actual camera pixels (not just bounding box)
+        if (this.pixelAnalysis) {
+            const px = this.pixelAnalysis;
+
+            // Tail wag → happy/excited (oscillating motion in edge zones)
+            if (px.tailWagScore >= 4) {
+                scores.happy += 25;
+                scores.playful += 15;
+                scores.excited += 10;
+            } else if (px.tailWagScore >= 2) {
+                scores.happy += 12;
+                scores.playful += 5;
+            }
+
+            // Body tension (trembling without macro movement) → stressed/anxious/fearful
+            if (px.tensionScore > 60) {
+                scores.stressed += 20;
+                scores.anxious += 15;
+                scores.fearful += 10;
+                scores.calm = Math.round(scores.calm * 0.4);
+            } else if (px.tensionScore > 30) {
+                scores.anxious += 10;
+                scores.stressed += 8;
+                scores.calm = Math.round(scores.calm * 0.7);
+            }
+
+            // Micro-vibration without macro motion = tense/frozen
+            if (px.microVibration > 0.2 && px.macroMotion < 0.03) {
+                scores.anxious += 12;
+                scores.fearful += 8;
+            }
+
+            // Very still at pixel level = truly calm or resting
+            if (px.overallMotion < 0.003 && px.microVibration < 0.03) {
+                if (this.currentPosture === 'down') {
+                    scores.calm += 15;
+                } else {
+                    scores.calm += 5;
+                    scores.alert += 5;
+                }
+            }
+
+            // Active at pixel level = energetic
+            if (px.macroMotion > 0.12) {
+                scores.excited += 12;
+                scores.playful += 8;
+            } else if (px.macroMotion > 0.06) {
+                scores.happy += 8;
+                scores.curious += 5;
+            }
+
+            // Head actively moving (top zone) = alert/curious
+            if (px.headActivity === 'active') {
+                scores.alert += 12;
+                scores.curious += 10;
+            } else if (px.headActivity === 'slight') {
+                scores.alert += 5;
+            }
+
+            // Body state interpretation bonuses
+            if (px.bodyState === 'tense') {
+                scores.stressed += 10;
+                scores.anxious += 8;
+            } else if (px.bodyState === 'wagging') {
+                scores.happy += 15;
+            } else if (px.bodyState === 'very-active') {
+                scores.excited += 15;
+                scores.playful += 10;
+            }
+        }
+
         // ── Temporal patterns ──
         if (this.emotionHistory.length > 30) {
             const recent = this.emotionHistory.slice(-30);
@@ -1211,7 +1316,9 @@ class DogEmotionEngine {
             avgSpeed * 3 +
             (barkData && barkData.isVocalizing ? barkData.intensity * 0.5 : 0) +
             this.patterns.bouncing * 5 +
-            (this.energyState ? this.energyState.energy * 2 : 0)
+            (this.energyState ? this.energyState.energy * 2 : 0) +
+            (this.pixelAnalysis ? this.pixelAnalysis.pixelEnergy * 0.5 : 0) +
+            (this.pixelAnalysis ? this.pixelAnalysis.tensionScore * 0.3 : 0)
         ));
 
         // Raw scan readings — actual measured values from the camera
@@ -1233,7 +1340,14 @@ class DogEmotionEngine {
             acceleration: Math.round((movement.acceleration || 0) * 10) / 10,
             framesAnalyzed: this.frameHistory.length,
             stillnessScore: this.patterns.stillness,
-            activePatterns: Object.entries(this.patterns).filter(([k, v]) => v > 0).map(([k]) => k)
+            activePatterns: Object.entries(this.patterns).filter(([k, v]) => v > 0).map(([k]) => k),
+            // Pixel-level vision data
+            pixelEnergy: this.pixelAnalysis ? this.pixelAnalysis.pixelEnergy : 0,
+            pixelVibration: this.pixelAnalysis ? this.pixelAnalysis.pixelVibration : 0,
+            pixelFrequency: this.pixelAnalysis ? this.pixelAnalysis.pixelFrequency : 0,
+            bodyState: this.pixelAnalysis ? this.pixelAnalysis.bodyState : 'unknown',
+            tailWag: this.pixelAnalysis ? this.pixelAnalysis.tailWagScore : 0,
+            bodyTension: this.pixelAnalysis ? this.pixelAnalysis.tensionScore : 0
         };
 
         return {
@@ -1580,6 +1694,8 @@ class DogEmotionEngine {
         this.actionCounts = {};
         // Reset 369 energy state
         this.energyState = null;
+        // Reset pixel analysis state
+        this.pixelAnalysis = null;
     }
 }
 
