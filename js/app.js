@@ -276,9 +276,11 @@ function updateScanReadings(emotionAssess, barkAssess) {
     setReading('rdStillness', rd.stillnessScore);
     setReading('rdFrames', rd.framesAnalyzed);
 
-    // Audio readings
+    // Audio readings — show raw mic level (not just when vocalizing)
     if (barkAssess) {
-        setReading('rdAudioLvl', barkAssess.intensity || 0);
+        // Show raw RMS as percentage so user can see mic is picking up sound
+        const rawLevel = barkAssess._rms ? Math.round(barkAssess._rms * 100) : 0;
+        setReading('rdAudioLvl', rawLevel);
         setReading('rdAudioFreq', barkAssess.dominantFreq || 0);
         setReading('rdBarkRate', barkAssess.barkRate || 0);
     }
@@ -382,12 +384,21 @@ function updateBarkStatus(barkAssess) {
 
     if (barkAssess && barkAssess.isVocalizing) {
         barkStatusEl.className = 'bark-status barking';
-        barkTextEl.textContent = `Microphone: ${barkAssess.currentType.toUpperCase()} detected — ${barkAssess.dominantFreq}Hz`;
+        const rmsDisplay = barkAssess._rms ? ` | Vol: ${Math.round(barkAssess._rms * 100)}%` : '';
+        barkTextEl.textContent = `Microphone: ${barkAssess.currentType.toUpperCase()} detected — ${barkAssess.dominantFreq}Hz${rmsDisplay}`;
     } else if (barkEngine.isActive) {
         barkStatusEl.className = 'bark-status active';
-        barkTextEl.textContent = barkAssess && barkAssess.hasBaseline
-            ? 'Microphone: Active — Monitoring for vocalizations'
-            : 'Microphone: Establishing environmental baseline...';
+        if (barkAssess && barkAssess.hasBaseline) {
+            // Show live audio level so user can see mic is working
+            const rmsLevel = barkAssess._rms ? Math.round(barkAssess._rms * 1000) : 0;
+            const threshold = barkAssess._threshold ? Math.round(barkAssess._threshold * 1000) : 0;
+            const barks = barkAssess._totalBarks || 0;
+            barkTextEl.textContent = `Mic: Active | Level: ${rmsLevel} | Threshold: ${threshold} | Barks: ${barks}`;
+        } else if (barkAssess && barkAssess._audioState === 'suspended') {
+            barkTextEl.textContent = 'Microphone: Audio suspended — tap screen to activate';
+        } else {
+            barkTextEl.textContent = 'Microphone: Establishing environmental baseline...';
+        }
     } else {
         barkStatusEl.className = 'bark-status silent';
         barkTextEl.textContent = 'Microphone: Initializing...';
@@ -1363,6 +1374,18 @@ document.getElementById('btnNewScan').addEventListener('click', () => {
     resetUIContent();
 
     startScan();
+});
+
+// ── Resume AudioContext on any user interaction ──
+// Mobile browsers suspend AudioContext aggressively. Any tap/click resumes it.
+['click', 'touchstart'].forEach(evt => {
+    document.addEventListener(evt, () => {
+        if (barkEngine.audioContext && barkEngine.audioContext.state === 'suspended') {
+            barkEngine.audioContext.resume().then(() => {
+                console.log('AudioContext resumed via user interaction');
+            });
+        }
+    }, { once: false, passive: true });
 });
 
 // ── Init ──

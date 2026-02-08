@@ -117,6 +117,15 @@ class BarkAnalysisEngine {
 
         try {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            // CRITICAL: On mobile browsers (iOS/Android), AudioContext starts
+            // in "suspended" state and produces ZERO audio data until resumed.
+            // Must resume after user gesture (startScan button click counts).
+            if (this.audioContext.state === 'suspended') {
+                await this.audioContext.resume();
+                console.log('AudioContext resumed from suspended state');
+            }
+
             this.sampleRate = this.audioContext.sampleRate;
 
             this.analyserNode = this.audioContext.createAnalyser();
@@ -141,6 +150,13 @@ class BarkAnalysisEngine {
 
             this._allocateBuffers();
             this.isActive = true;
+
+            // Track current RMS for diagnostic display
+            this.lastRMS = 0;
+            this.lastEffectiveThreshold = 0;
+
+            console.log('BarkAnalysis: AudioContext state=' + this.audioContext.state +
+                        ', sampleRate=' + this.sampleRate);
         } catch (err) {
             console.error('BarkAnalysis initAudioContext failed:', err);
             this.destroy();
@@ -223,27 +239,50 @@ class BarkAnalysisEngine {
     processAudioFrame() {
         if (!this.isActive || !this.analyserNode) return;
 
+        // Re-check AudioContext state — mobile browsers can re-suspend
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+            this.audioContext.resume();
+        }
+
         this.totalFrameCount++;
 
         this.analyserNode.getFloatTimeDomainData(this.timeDomainBuffer);
         this.analyserNode.getFloatFrequencyData(this.frequencyBuffer);
 
         const rms = this._computeRMS(this.timeDomainBuffer);
+        this.lastRMS = rms; // Store for diagnostic display
 
         // Establish environmental baseline (first 3 seconds)
+        // Only include quiet frames in baseline — if dog is already barking
+        // during baseline, those loud frames would contaminate it
         if (!this.baselineEstablished) {
-            this.baselineFrames.push(rms);
-            if (this.baselineFrames.length >= this.BASELINE_FRAMES) {
-                this.baselineRMS = this.baselineFrames.reduce((a, b) => a + b, 0) / this.baselineFrames.length;
+            // Only add frames with RMS < 0.08 to baseline (filter out barks during init)
+            if (rms < 0.08) {
+                this.baselineFrames.push(rms);
+            }
+            // Need at least 30 good frames (1 second) OR 90 total frames passed
+            if (this.baselineFrames.length >= 30 || this.totalFrameCount >= this.BASELINE_FRAMES) {
+                if (this.baselineFrames.length > 0) {
+                    this.baselineRMS = this.baselineFrames.reduce((a, b) => a + b, 0) / this.baselineFrames.length;
+                } else {
+                    // No quiet frames at all — use a conservative default
+                    this.baselineRMS = 0.02;
+                }
+                // Cap baseline RMS — even in noisy environments, don't make
+                // detection impossible. Max baseline 0.05 means effective
+                // threshold won't exceed 0.125 (0.05 * 2.5)
+                this.baselineRMS = Math.min(this.baselineRMS, 0.05);
                 this.baselineEstablished = true;
+                console.log('BarkAnalysis: Baseline established, RMS=' + this.baselineRMS.toFixed(4) +
+                            ' from ' + this.baselineFrames.length + ' frames');
             }
         }
 
         // Sound activity detection (above baseline + threshold)
-        // Must be 2.5x above baseline to be considered sound activity
         const effectiveThreshold = this.baselineEstablished
             ? Math.max(this.VAD_THRESHOLD, this.baselineRMS * 2.5)
             : this.VAD_THRESHOLD;
+        this.lastEffectiveThreshold = effectiveThreshold;
 
         this.isSoundActive = rms > effectiveThreshold;
 
@@ -378,7 +417,13 @@ class BarkAnalysisEngine {
                 ? this.dominantFreqHistory[this.dominantFreqHistory.length - 1].freq : 0,
             interBarkInterval: avgIBI,
             tonality: avgTonality,
-            pitchContour: lastPitchContour
+            pitchContour: lastPitchContour,
+            // Diagnostic data for bark status display
+            _rms: this.lastRMS || 0,
+            _threshold: this.lastEffectiveThreshold || 0,
+            _baselineRMS: this.baselineRMS || 0,
+            _audioState: this.audioContext ? this.audioContext.state : 'none',
+            _totalBarks: this.barkHistory.length
         };
     }
 
