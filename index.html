@@ -11,6 +11,24 @@
   <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
   <link rel="apple-touch-icon" href="assets/icon-192.png">
   <link rel="stylesheet" href="css/styles.css">
+
+  <!-- FORCE CACHE NUKE — Kills old service worker and clears all stale caches -->
+  <script>
+  (function() {
+    // 1. Unregister ALL service workers
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        registrations.forEach(function(reg) { reg.unregister(); });
+      });
+    }
+    // 2. Delete ALL caches
+    if ('caches' in window) {
+      caches.keys().then(function(names) {
+        names.forEach(function(name) { caches.delete(name); });
+      });
+    }
+  })();
+  </script>
 </head>
 <body>
   <!-- Password Gate -->
@@ -359,13 +377,13 @@
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
 
-  <!-- App modules -->
-  <script src="js/engine-369.js"></script>
-  <script src="js/bark-analysis-engine.js"></script>
-  <script src="js/dog-vision-analyzer.js"></script>
-  <script src="js/dog-emotion-engine.js"></script>
-  <script src="js/canine-translator.js"></script>
-  <script src="js/scan-report-agent.js"></script>
-  <script src="js/app.js"></script>
+  <!-- App modules (cache-busted to bypass stale service worker) -->
+  <script src="js/engine-369.js?v=3"></script>
+  <script src="js/bark-analysis-engine.js?v=3"></script>
+  <script src="js/dog-vision-analyzer.js?v=3"></script>
+  <script src="js/dog-emotion-engine.js?v=3"></script>
+  <script src="js/canine-translator.js?v=3"></script>
+  <script src="js/scan-report-agent.js?v=3"></script>
+  <script src="js/app.js?v=3"></script>
 </body>
 </html>
