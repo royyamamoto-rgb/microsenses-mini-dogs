@@ -142,6 +142,10 @@ class DogVisionAnalyzer {
             // ── Breathing detection ──
             const breathingDetected = this._detectBreathing(zones);
 
+            // ── Pixel-based posture estimation ──
+            // Analyzes vertical brightness distribution to determine body position
+            const postureHint = this._estimatePostureFromPixels(gray, zones);
+
             // Build result
             const result = {
                 // Raw motion data
@@ -165,6 +169,9 @@ class DogVisionAnalyzer {
                 pixelEnergy: Math.round(this.smoothedOverallMotion * 5000) / 10,
                 pixelVibration: Math.round(this.smoothedMicroVib * 1000) / 10,
                 pixelFrequency: motionFrequency,
+
+                // Posture hint from pixel analysis
+                postureHint,
 
                 // Body state interpretation
                 bodyState: this._interpretBodyState(
@@ -333,6 +340,96 @@ class DogVisionAnalyzer {
         return peaks >= 1;
     }
 
+    // ── Pixel-Based Posture Estimation ──
+    // Uses the actual brightness distribution of the dog crop to estimate posture.
+    // A standing dog has brightness concentrated in the center.
+    // A lying dog has brightness spread wide and low.
+    // A sitting dog has brightness concentrated in the upper portion.
+    _estimatePostureFromPixels(gray, zones) {
+        // Compute vertical brightness profile (sum per row)
+        const rowSums = new Float32Array(this.CROP_SIZE);
+        for (let y = 0; y < this.CROP_SIZE; y++) {
+            let sum = 0;
+            for (let x = 0; x < this.CROP_SIZE; x++) {
+                sum += gray[y * this.CROP_SIZE + x];
+            }
+            rowSums[y] = sum / this.CROP_SIZE; // Average brightness per row
+        }
+
+        // Find the vertical center of mass (where the dog's body mass is concentrated)
+        let weightedSum = 0;
+        let totalWeight = 0;
+        for (let y = 0; y < this.CROP_SIZE; y++) {
+            weightedSum += y * rowSums[y];
+            totalWeight += rowSums[y];
+        }
+        const verticalCenterOfMass = totalWeight > 0 ? weightedSum / totalWeight : this.CROP_SIZE / 2;
+        const normalizedVCM = verticalCenterOfMass / this.CROP_SIZE; // 0=top, 1=bottom
+
+        // Compute horizontal brightness spread (how wide the dog appears)
+        const colSums = new Float32Array(this.CROP_SIZE);
+        for (let x = 0; x < this.CROP_SIZE; x++) {
+            let sum = 0;
+            for (let y = 0; y < this.CROP_SIZE; y++) {
+                sum += gray[y * this.CROP_SIZE + x];
+            }
+            colSums[x] = sum / this.CROP_SIZE;
+        }
+
+        // Find horizontal spread — how much of the width has significant brightness
+        let leftEdge = this.CROP_SIZE, rightEdge = 0;
+        const meanBrightness = totalWeight / this.CROP_SIZE;
+        for (let x = 0; x < this.CROP_SIZE; x++) {
+            if (colSums[x] > meanBrightness * 0.5) {
+                if (x < leftEdge) leftEdge = x;
+                if (x > rightEdge) rightEdge = x;
+            }
+        }
+        const horizontalSpread = (rightEdge - leftEdge) / this.CROP_SIZE;
+
+        // Compute top-half vs bottom-half brightness ratio
+        const topHalf = rowSums.slice(0, Math.floor(this.CROP_SIZE / 2));
+        const bottomHalf = rowSums.slice(Math.floor(this.CROP_SIZE / 2));
+        const topAvg = topHalf.reduce((a, b) => a + b, 0) / topHalf.length;
+        const bottomAvg = bottomHalf.reduce((a, b) => a + b, 0) / bottomHalf.length;
+        const topBottomRatio = bottomAvg > 0 ? topAvg / bottomAvg : 1;
+
+        // Zone-based motion analysis for posture
+        // Top row motion vs bottom row motion
+        const topZoneMotion = zones.filter(z => z.row === 0).reduce((s, z) => s + z.motion, 0);
+        const midZoneMotion = zones.filter(z => z.row === 1).reduce((s, z) => s + z.motion, 0);
+        const bottomZoneMotion = zones.filter(z => z.row === 2).reduce((s, z) => s + z.motion, 0);
+
+        // Posture estimation based on pixel analysis
+        // DOWN: brightness spread wide (high horizontal spread), low center of mass,
+        //        or motion concentrated in bottom/middle zones
+        // STAND: brightness centered vertically, narrow horizontal spread
+        // SIT: brightness top-heavy (topBottomRatio > 1.2)
+        let hint = 'stand'; // default
+        let confidence = 40;
+
+        if (horizontalSpread > 0.8 && normalizedVCM > 0.45) {
+            hint = 'down';
+            confidence = 65;
+        } else if (normalizedVCM < 0.38 && topBottomRatio > 1.15) {
+            hint = 'sit';
+            confidence = 50;
+        } else if (normalizedVCM >= 0.38 && normalizedVCM <= 0.55) {
+            hint = 'stand';
+            confidence = 55;
+        }
+
+        return {
+            posture: hint,
+            confidence,
+            verticalCenterOfMass: Math.round(normalizedVCM * 100) / 100,
+            horizontalSpread: Math.round(horizontalSpread * 100) / 100,
+            topBottomRatio: Math.round(topBottomRatio * 100) / 100,
+            topZoneMotion: Math.round(topZoneMotion * 10000) / 10000,
+            bottomZoneMotion: Math.round(bottomZoneMotion * 10000) / 10000
+        };
+    }
+
     // ── Body State Interpretation ──
     _interpretBodyState(overallMotion, microVib, macroMotion, tension, tailWag) {
         if (macroMotion > 0.15) return 'very-active';
@@ -391,6 +488,7 @@ class DogVisionAnalyzer {
             zones: [], tailWagScore: 0, tensionScore: 0,
             headActivity: 'still', motionFrequency: 0, breathingDetected: false,
             pixelEnergy: 0, pixelVibration: 0, pixelFrequency: 0,
+            postureHint: null,
             bodyState: 'unknown'
         };
     }

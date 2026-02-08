@@ -272,6 +272,32 @@ class DogEmotionEngine {
             }
         }
 
+        // ── PIXEL-BASED POSTURE REFINEMENT ──
+        // The bounding box AR can only reliably detect "down" (lying) vs "upright".
+        // Pixel analysis provides a more nuanced posture hint by analyzing actual
+        // brightness distribution, vertical center of mass, and horizontal spread.
+        // When pixel analysis has sufficient confidence, use it to refine/override
+        // the AR-based estimate — especially for sit vs stand distinction.
+        if (this.pixelAnalysis && this.pixelAnalysis.postureHint) {
+            const hint = this.pixelAnalysis.postureHint;
+
+            // Crouch detected from bounding box takes highest priority (rapid transition)
+            // — don't override it with pixel data
+            if (posture !== 'crouch') {
+                if (hint.confidence >= 60) {
+                    // High pixel confidence — prefer pixel posture
+                    posture = hint.posture;
+                } else if (hint.confidence >= 50 && posture === 'stand') {
+                    // Moderate pixel confidence — only override stand→sit/down
+                    // (stand is the fallback default, so pixel data can improve it)
+                    if (hint.posture === 'sit' || hint.posture === 'down') {
+                        posture = hint.posture;
+                    }
+                }
+                // If both AR and pixel agree, the result is already correct
+            }
+        }
+
         // Track posture changes
         const prevPosture = this.currentPosture;
         this.currentPosture = posture;

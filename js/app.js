@@ -488,18 +488,18 @@ async function processFrame() {
             const [bx, by, bw, bh] = dog.bbox;
 
             // ── Pixel-Level Vision Analysis ──
-            // Analyze actual pixel data within the dog's bounding box
-            // This gives us micro-vibrations, tail wag, tension, head movement
+            // FIRST: Analyze actual pixel data within the dog's bounding box
+            // This MUST happen BEFORE emotion processing so the data is available
             const pixelData = visionAnalyzer.analyze(video, { x: bx, y: by, width: bw, height: bh });
 
-            // Process through emotion engine (now with pixel analysis data)
+            // Set pixel data BEFORE processing so emotion engine uses it THIS frame
+            emotionEngine.setPixelAnalysis(pixelData);
+
+            // Process through emotion engine with pixel + audio + visual data
             const emotionAssess = emotionEngine.processFrame(
                 { box: { x: bx, y: by, width: bw, height: bh }, confidence: dog.score },
                 barkAssess
             );
-
-            // Feed pixel analysis into emotion engine for next frame
-            emotionEngine.setPixelAnalysis(pixelData);
 
             // ── 369 Pipeline ──
             // Phase 3: Creation — raw input
