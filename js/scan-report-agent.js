@@ -92,14 +92,20 @@ class ScanReportAgent {
             emotionReport.patterns, behaviorState
         );
 
-        // Step 5: Build vision analysis summary for the report
-        const visionInsights = this._buildVisionInsights(visionSummary);
+        // Step 5: Filter detected signals — remove impossible detections
+        const filteredSignals = this._filterSignals(
+            emotionReport.detectedSignals, behaviorState
+        );
+
+        // Step 6: Build vision analysis summary for the report
+        const visionInsights = this._buildVisionInsights(visionSummary, behaviorState);
 
         return {
             behaviorState,
             filteredActions,
             validatedEmotion,
             cleanPatterns,
+            filteredSignals,
             visionInsights,
             // Pass through original data for technical detail section
             raw: {
@@ -354,12 +360,62 @@ class ScanReportAgent {
     }
 
     /**
-     * Build vision analysis insights from the pixel analyzer summary.
+     * Filter detected signals that contradict the behavioral state.
+     * A sleeping dog does NOT have "tail wagging" or "body tension" —
+     * those are camera noise artifacts.
      */
-    _buildVisionInsights(visionSummary) {
+    _filterSignals(signals, behaviorState) {
+        if (!signals || signals.length === 0) return [];
+
+        // Signals that are impossible for sleeping/resting dogs
+        const impossibleWhenResting = [
+            'Tail wagging detected',
+            'Body tension detected',
+            'Micro-vibrations detected',
+            'High body activity',
+            'Active head movement',
+            'High-speed movement detected',
+            'Moderate movement',
+            'Repetitive pacing detected',
+            'Bouncing/jumping movement',
+            'Spinning/circling detected',
+            'Play bow detected!',
+            'Jumping detected',
+            'Restless behavior'
+        ];
+
+        const impossibleWhenAlertStill = [
+            'Tail wagging detected',
+            'High body activity',
+            'High-speed movement detected',
+            'Bouncing/jumping movement',
+            'Spinning/circling detected',
+            'Play bow detected!',
+            'Jumping detected'
+        ];
+
+        if (behaviorState.state === 'sleeping' || behaviorState.state === 'resting') {
+            return signals.filter(s => !impossibleWhenResting.includes(s.signal));
+        }
+
+        if (behaviorState.state === 'alert-watching' || behaviorState.state === 'calm-standing') {
+            return signals.filter(s => !impossibleWhenAlertStill.includes(s.signal));
+        }
+
+        return signals;
+    }
+
+    /**
+     * Build vision analysis insights from the pixel analyzer summary.
+     * Gate insights by behavioral state — don't report noise as observation.
+     */
+    _buildVisionInsights(visionSummary, behaviorState) {
         if (!visionSummary || visionSummary.totalFrames < 10) {
             return null;
         }
+
+        const isResting = behaviorState &&
+            (behaviorState.state === 'sleeping' || behaviorState.state === 'resting');
 
         const insights = [];
 
@@ -383,8 +439,8 @@ class ScanReportAgent {
             });
         }
 
-        // Tail wag
-        if (visionSummary.peakTailWag >= 3) {
+        // Tail wag — only report if NOT resting and high confidence
+        if (!isResting && visionSummary.peakTailWag >= 5) {
             insights.push({
                 type: 'tail',
                 title: 'Tail Wagging Confirmed',
@@ -392,8 +448,8 @@ class ScanReportAgent {
             });
         }
 
-        // Tension
-        if (visionSummary.avgTension > 30) {
+        // Tension — only report if NOT resting (camera noise on still dogs = false tension)
+        if (!isResting && visionSummary.avgTension > 40) {
             insights.push({
                 type: 'tension',
                 title: 'Body Tension Detected',

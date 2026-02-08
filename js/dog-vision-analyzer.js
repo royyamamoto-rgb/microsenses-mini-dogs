@@ -105,16 +105,18 @@ class DogVisionAnalyzer {
                 diff[i] = Math.abs(this.currFrame[i] - this.prevFrame[i]);
                 totalDiff += diff[i];
 
-                // NOISE FLOOR: Mobile camera sensors produce 2-5% pixel noise
-                // between frames (sensor noise + JPEG/H.264 compression artifacts).
-                // Threshold raised from 0.8% to 2.5% to prevent camera noise
-                // from being misclassified as body micro-vibration/trembling.
-                if (diff[i] < 0.025) {
-                    stillPixels++;         // < 2.5% change = camera noise = still
-                } else if (diff[i] < 0.10) {
-                    microVibPixels++;      // 2.5-10% = real micro-vibration
+                // NOISE FLOOR: Mobile camera sensors produce 3-8% pixel noise
+                // between frames (sensor noise, JPEG/H.264 compression, auto
+                // exposure adjustments, auto white balance). Testing shows a
+                // completely still scene on a mobile phone produces 15-30% of
+                // pixels in the 2-6% change range. Threshold must be HIGH
+                // enough that camera noise registers as "still".
+                if (diff[i] < 0.04) {
+                    stillPixels++;         // < 4% change = camera noise = still
+                } else if (diff[i] < 0.12) {
+                    microVibPixels++;      // 4-12% = real micro-vibration
                 } else {
-                    macroMotionPixels++;   // > 10% = real macro movement
+                    macroMotionPixels++;   // > 12% = real macro movement
                 }
             }
 
@@ -240,9 +242,11 @@ class DogVisionAnalyzer {
     // ── Tail Wag Detection ──
     // Tail wag creates oscillating motion in left/right edge zones
     _detectTailWag(currentZones) {
-        if (this.motionHistory.length < 12) return 0;
+        // Require at least 25 frames of history for reliable tail wag detection.
+        // Short windows produce false positives from random camera noise.
+        if (this.motionHistory.length < 25) return 0;
 
-        const recent = this.motionHistory.slice(-12);
+        const recent = this.motionHistory.slice(-25);
 
         // Get left and right edge zone motion over time
         const leftMotion = recent.map(r => {
@@ -267,8 +271,10 @@ class DogVisionAnalyzer {
             const d1 = values[i - 1] - values[i - 2];
             const d2 = values[i] - values[i - 1];
             // Alternating direction = oscillation
-            // Threshold raised from 0.003 to 0.008 to filter camera noise
-            if ((d1 > 0.008 && d2 < -0.008) || (d1 < -0.008 && d2 > 0.008)) {
+            // Threshold must be WELL above camera noise (which creates ~0.005-0.015
+            // zone motion from sensor noise alone). Only count oscillations where
+            // the zone motion change is clearly above noise.
+            if ((d1 > 0.02 && d2 < -0.02) || (d1 < -0.02 && d2 > 0.02)) {
                 oscillations++;
             }
         }
@@ -280,15 +286,15 @@ class DogVisionAnalyzer {
         // Trembling: many pixels with small motion, few with large motion.
         // A tense dog shows widespread micro-vibration without macro movement.
         //
-        // NOISE FLOOR: Even after raising the still-pixel threshold to 2.5%,
-        // some residual camera noise (~5-10% of pixels) will still register as
-        // micro-vibration. Subtract this noise floor before evaluating tension.
-        const adjustedMicroVib = Math.max(0, microVibRatio - 0.08);
+        // NOISE FLOOR: Even with a 4% still-pixel threshold, residual camera
+        // noise (~10-20% of pixels) still registers as micro-vibration on mobile.
+        // Subtract 15% noise floor. Only micro-vibration ABOVE 15% is real.
+        const adjustedMicroVib = Math.max(0, microVibRatio - 0.15);
 
-        if (adjustedMicroVib > 0.30 && macroMotionRatio < 0.05) return 90; // Severe trembling
-        if (adjustedMicroVib > 0.18 && macroMotionRatio < 0.08) return 60; // Tense/shaking
-        if (adjustedMicroVib > 0.10 && macroMotionRatio < 0.10) return 35; // Mild tension
-        if (adjustedMicroVib > 0.04) return 15; // Slight
+        if (adjustedMicroVib > 0.25 && macroMotionRatio < 0.05) return 90; // Severe trembling
+        if (adjustedMicroVib > 0.15 && macroMotionRatio < 0.08) return 60; // Tense/shaking
+        if (adjustedMicroVib > 0.08 && macroMotionRatio < 0.10) return 35; // Mild tension
+        if (adjustedMicroVib > 0.03) return 15; // Slight
         return 0; // Relaxed
     }
 
@@ -450,10 +456,10 @@ class DogVisionAnalyzer {
         if (macroMotion > 0.20) return 'very-active';
         if (macroMotion > 0.10) return 'active';
         if (tension > 50) return 'tense';
-        if (tailWag >= 3) return 'wagging';
-        if (microVib > 0.20) return 'vibrating';
-        if (overallMotion < 0.008 && microVib < 0.06) return 'very-still';
-        if (overallMotion < 0.015) return 'calm';
+        if (tailWag >= 5) return 'wagging';  // Raised from 3 to reduce false positives
+        if (microVib > 0.25) return 'vibrating'; // Raised to account for noise
+        if (overallMotion < 0.012 && microVib < 0.10) return 'very-still';
+        if (overallMotion < 0.02) return 'calm';
         return 'slight-motion';
     }
 

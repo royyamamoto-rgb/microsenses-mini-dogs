@@ -776,10 +776,14 @@ class DogEmotionEngine {
         // Pixel-level vision signals
         if (this.pixelAnalysis) {
             const px = this.pixelAnalysis;
-            if (px.tailWagScore >= 2) {
+            // Tail wag: require high score (>=5) to avoid false positives from camera noise.
+            // Camera noise creates random oscillations in edge zones — only sustained,
+            // strong oscillation is real tail wagging.
+            if (px.tailWagScore >= 5) {
                 this.detectedSignals.push({ type: 'vision', signal: 'Tail wagging detected', detail: `Oscillating motion in body edges — wag score: ${px.tailWagScore}`, source: 'pixel motion analysis' });
             }
-            if (px.tensionScore > 35) {
+            // Tension: require high score after noise floor subtraction
+            if (px.tensionScore > 50) {
                 this.detectedSignals.push({ type: 'vision', signal: 'Body tension detected', detail: `Widespread micro-vibration without major movement — tension: ${px.tensionScore}%`, source: 'pixel micro-vibration analysis' });
             }
             if (px.headActivity === 'active') {
@@ -791,7 +795,9 @@ class DogEmotionEngine {
             if (px.bodyState === 'very-still') {
                 this.detectedSignals.push({ type: 'vision', signal: 'Very still (pixel-confirmed)', detail: 'Minimal pixel changes detected — dog is truly motionless', source: 'pixel motion analysis' });
             }
-            if (px.microVibration > 0.18) {
+            // Micro-vibrations: with 4% noise floor and 15% noise subtraction in tension,
+            // only report micro-vibrations above 25% — below that is camera noise.
+            if (px.microVibration > 0.25) {
                 this.detectedSignals.push({ type: 'vision', signal: 'Micro-vibrations detected', detail: `${Math.round(px.microVibration * 100)}% of body pixels showing subtle motion — energy/trembling`, source: 'pixel micro-vibration' });
             }
         }
@@ -1230,11 +1236,13 @@ class DogEmotionEngine {
             const px = this.pixelAnalysis;
 
             // Tail wag → happy/excited (oscillating motion in edge zones)
-            if (px.tailWagScore >= 4) {
+            // Require high score (>=6) for strong signal, >=4 for mild.
+            // Below 4 is likely camera noise, not real tail wagging.
+            if (px.tailWagScore >= 6) {
                 scores.happy += 25;
                 scores.playful += 15;
                 scores.excited += 10;
-            } else if (px.tailWagScore >= 2) {
+            } else if (px.tailWagScore >= 4) {
                 scores.happy += 12;
                 scores.playful += 5;
             }

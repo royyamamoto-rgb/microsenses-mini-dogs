@@ -504,23 +504,37 @@ async function processFrame() {
 
             // ── 369 Pipeline ──
             // Phase 3: Creation — raw input
-            // Use pixel-level vibration data for MORE ACCURATE energy measurement
-            // pixelVibration = actual micro-vibrations from camera pixels
-            // This replaces just bounding box speed (which is near zero for still dogs)
+            //
+            // CRITICAL: Only feed REAL data to the 369 engine.
+            // - Pixel vibration from camera noise is NOT real vibration.
+            //   Only use pixel data when the dog is actually moving (bbSpeed > 3).
+            // - Ambient room audio frequency is NOT dog vocalization.
+            //   Only use audio frequency when the dog is actually vocalizing.
+            //
+            // A sleeping dog has ZERO vibration, ZERO frequency, ZERO energy.
             const bbSpeed = emotionAssess.movement ? emotionAssess.movement.avgSpeed : 0;
-            const pixelVib = pixelData ? pixelData.pixelVibration : 0;
-            // Apply noise floor: mobile camera sensors produce pixelVibration ~2-8
-            // purely from sensor noise. Only values above 8 represent real vibration.
-            // Removed the * 2 multiplier that was amplifying camera noise.
-            const cleanPixelVib = pixelVib > 8 ? pixelVib : 0;
-            const realVibration = Math.max(bbSpeed, cleanPixelVib);
+            const isReallyMoving = bbSpeed > 3; // Bounding box actually changing
+            const isActuallyVocalizing = barkAssess && barkAssess.isVocalizing;
+
+            // Only use pixel vibration when bounding box confirms real movement
+            let realVibration = bbSpeed;
+            if (isReallyMoving) {
+                const pixelVib = pixelData ? pixelData.pixelVibration : 0;
+                realVibration = Math.max(bbSpeed, pixelVib > 10 ? pixelVib : 0);
+            }
+
+            // Only use audio frequency when the dog is actually vocalizing
+            // Ambient room noise (fan, AC, traffic) is NOT dog communication
+            const realFrequency = isActuallyVocalizing
+                ? (barkAssess.dominantFreq || 0)
+                : 0;
 
             const creationInput = {
                 movement: {
                     magnitude: realVibration
                 },
                 audio: {
-                    dominantFreq: barkAssess ? barkAssess.dominantFreq : 0
+                    dominantFreq: realFrequency
                 },
                 timestamp: now
             };
@@ -855,6 +869,26 @@ function completeScan() {
 
     // Render human-friendly report using agent-validated data
     renderFriendlyReport(emotionReport, translationReport, barkReport, energyReport, elapsed, agentReport);
+
+    // ── Override live panels with agent-validated data ──
+    // The Detected Signals panel still shows last frame's raw data.
+    // Replace it with agent-filtered signals so the report is coherent.
+    if (agentReport && agentReport.filteredSignals) {
+        const sigEl = document.getElementById('signalsContent');
+        if (sigEl) {
+            if (agentReport.filteredSignals.length > 0) {
+                let sigHtml = '';
+                agentReport.filteredSignals.forEach(s => {
+                    const iconMap = { posture: '\u{1F9CD}', movement: '\u{1F3C3}', pattern: '\u{1F50D}', audio: '\u{1F50A}', vision: '\u{1F4F7}' };
+                    const icon = iconMap[s.type] || '\u{1F50E}';
+                    sigHtml += `<div class="signal-item"><span class="sig-icon">${icon}</span><div><div class="sig-signal">${s.signal}</div><div class="sig-detail">${s.detail}</div></div></div>`;
+                });
+                sigEl.innerHTML = sigHtml;
+            } else {
+                sigEl.innerHTML = '<div class="signal-item"><span class="sig-icon">\u{2705}</span><div><div class="sig-signal">Dog is resting peacefully</div><div class="sig-detail">No significant signals detected — your dog is calm and comfortable.</div></div></div>';
+            }
+        }
+    }
 
     // Render technical detail (hidden by default)
     renderEmotionReport(emotionReport);
