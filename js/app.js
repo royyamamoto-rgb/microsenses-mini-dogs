@@ -499,6 +499,13 @@ async function processFrame() {
             };
             const completion = engine369.processCompletion(harmony, translationInput);
 
+            // Feed 369 energy/vibration/frequency back into emotion engine
+            // so next frame's emotion assessment uses micro vibration data
+            emotionEngine.setEnergyState({
+                ...completion.metrics,
+                energyTrend: completion.energyTrend
+            });
+
             // Generate translation
             const translation = translator.translate(emotionAssess, barkAssess, completion);
 
@@ -920,13 +927,15 @@ function renderFriendlyReport(emotionReport, translationReport, barkReport, ener
             'sleeping': 'Possibly sleeping — very still'
         };
 
-        // Filter out generic locomotion/posture that overlap with primary
-        const skipInGrid = ['observing'];
+        // Filter out generic/low-confidence actions
+        // Only show actions detected in at least 5% of frames to avoid reporting noise
+        const skipInGrid = ['observing', 'stationary'];
+        const frames = emotionReport.framesAnalyzed || 1;
         actionSummary.topActions.forEach(([action, count]) => {
             if (skipInGrid.includes(action)) return;
-            const desc = actionDescriptions[action] || action.replace(/-/g, ' ');
-            const frames = emotionReport.framesAnalyzed || 1;
             const pct = Math.round((count / frames) * 100);
+            if (pct < 5) return; // Skip low-confidence detections
+            const desc = actionDescriptions[action] || action.replace(/-/g, ' ');
             html += `<div class="action-report-item">
                 <div class="action-report-name">${action.replace(/-/g, ' ')}</div>
                 <div class="action-report-desc">${desc}</div>

@@ -96,6 +96,19 @@ class DogEmotionEngine {
         this.actionHistory = [];       // Timeline of actions
         this.maxActionHistory = 600;
         this.actionCounts = {};        // Count of each action detected
+
+        // ── 369 Energy State (fed from Engine369 each frame) ──
+        this.energyState = null;
+    }
+
+    /**
+     * Set 369 energy state from Engine369 completion metrics.
+     * Called from app.js after each 369 pipeline cycle.
+     * Used by _assessEmotion() to integrate micro vibrations,
+     * energy, vibration, and frequency into emotion scoring.
+     */
+    setEnergyState(metrics) {
+        this.energyState = metrics;
     }
 
     processFrame(detection, barkData) {
@@ -491,70 +504,11 @@ class DogEmotionEngine {
         }
 
         // ═══════════════════════════════════════════
-        // BODY ACTIONS — Require real movement, not jitter
-        // ═══════════════════════════════════════════
-
-        // Shaking off — require strong oscillation
-        if (!isStill && recentMoves.length >= 6) {
-            const recent6 = recentMoves.slice(-6);
-            const sizeOsc = recent6.filter((m, i) => i > 0 && Math.sign(m.sizeChange) !== Math.sign(recent6[i - 1].sizeChange) && Math.abs(m.sizeChange) > 0.01).length;
-            const posOsc = recent6.filter((m, i) => i > 0 && Math.sign(m.dx) !== Math.sign(recent6[i - 1].dx) && Math.abs(m.dx) > 6).length;
-            if (sizeOsc >= 3 && posOsc >= 3) {
-                actions.push({ action: 'shaking-off', category: 'body', desc: 'Shaking off — full body shake, often after stress or getting wet' });
-            }
-        }
-
-        // Rolling — require large AR changes
-        if (!isStill && recentMoves.length >= 5) {
-            const recent5 = this.frameHistory.slice(-5);
-            if (recent5.length >= 5) {
-                const arChanges = [];
-                for (let i = 1; i < recent5.length; i++) {
-                    arChanges.push(Math.abs(recent5[i].aspectRatio - recent5[i - 1].aspectRatio));
-                }
-                const bigARChanges = arChanges.filter(c => c > 0.5).length;
-                if (bigARChanges >= 2 && movement.verticalOscillation > 1) {
-                    actions.push({ action: 'rolling', category: 'body', desc: 'Rolling over — playful, scratching back, or showing belly' });
-                }
-            }
-        }
-
-        // Stretching — require large size change
-        if (!isStill && this.frameHistory.length >= 10) {
-            const recent10 = this.frameHistory.slice(-10);
-            const areas = recent10.map(f => f.area);
-            const maxArea = Math.max(...areas);
-            const minArea = Math.min(...areas);
-            if (maxArea > minArea * 1.5 && curr.area < maxArea * 0.85 && avgSpeed < 3) {
-                actions.push({ action: 'stretching', category: 'body', desc: 'Stretching out — loosening up after rest' });
-            }
-        }
-
-        // Digging — require clear vertical action
-        if (!isStill && recentMoves.length >= 8) {
-            const recent8 = recentMoves.slice(-8);
-            const vertActivity = recent8.filter(m => Math.abs(m.dy) > 8).length;
-            const horizActivity = recent8.filter(m => Math.abs(m.dx) > 8).length;
-            if (vertActivity >= 4 && horizActivity <= 1 && avgSpeed < 8) {
-                actions.push({ action: 'digging', category: 'body', desc: 'Digging motion — pawing at something' });
-            }
-        }
-
-        // Crawling — require clear forward movement while down
-        if (this.currentPosture === 'down' && avgSpeed > 3 && avgSpeed < 8) {
-            actions.push({ action: 'crawling', category: 'body', desc: 'Crawling / army crawl — low to the ground and moving slowly' });
-        }
-
-        // Scratching — require strong repeated oscillation
-        if (!isStill && recentMoves.length >= 8) {
-            const recent8 = recentMoves.slice(-8);
-            const oscCount = recent8.filter(m => m.speed > 3 && m.speed < 8).length;
-            const noTravel = recent8.every(m => m.speed < 10);
-            const hasOsc = recent8.filter((m, i) => i > 0 && Math.sign(m.dy) !== Math.sign(recent8[i - 1].dy) && Math.abs(m.dy) > 3).length;
-            if (oscCount >= 5 && noTravel && hasOsc >= 4) {
-                actions.push({ action: 'scratching', category: 'body', desc: 'Scratching — repetitive localized movement' });
-            }
-        }
+        // BODY ACTIONS — REMOVED: shaking-off, rolling, stretching, digging, crawling, scratching
+        // These actions CANNOT be reliably detected from a bounding box alone.
+        // Reporting them would be misinformation. The camera sees a bounding box —
+        // it cannot distinguish scratching from shaking, or digging from head-bobbing.
+        // Only actions with clear, unambiguous bounding-box signatures are kept.
 
         // ═══════════════════════════════════════════
         // HEAD & ATTENTION ACTIONS — Require stronger signals
@@ -580,21 +534,9 @@ class DogEmotionEngine {
             }
         }
 
-        // Sniffing — require clear slow deliberate movement while standing
-        if (avgSpeed > 2 && avgSpeed < 6 && this.currentPosture === 'stand' && !isStill) {
-            const smallMoves = recentMoves.filter(m => m.speed > 2 && m.speed < 6).length;
-            if (smallMoves > 12 && recentMoves.length >= 15) {
-                actions.push({ action: 'sniffing', category: 'attention', desc: 'Slow deliberate movement — likely sniffing and exploring' });
-            }
-        }
-
-        // Looking around — require clear lateral oscillation, NOT jitter
-        if (avgSpeed > 1 && avgSpeed < 5 && !isStill) {
-            const lateralOsc = recentMoves.filter((m, i) => i > 0 && Math.sign(m.dx) !== Math.sign(recentMoves[i - 1].dx) && Math.abs(m.dx) > 4).length;
-            if (lateralOsc >= 4) {
-                actions.push({ action: 'looking-around', category: 'attention', desc: 'Looking around — scanning the environment' });
-            }
-        }
+        // REMOVED: sniffing, looking-around
+        // Cannot be reliably detected from bounding box — these are guesses, not detections.
+        // "Sniffing" requires seeing the nose; "looking around" requires seeing head orientation.
 
         // ═══════════════════════════════════════════
         // REPETITIVE / BEHAVIORAL PATTERNS
@@ -1116,30 +1058,86 @@ class DogEmotionEngine {
             }
         }
 
-        // ── STILLNESS OVERRIDE ──
-        // Critical fix: If the dog is genuinely still (high stillness score),
-        // hard-suppress high-energy emotions. A still dog is NOT playful or excited.
-        if (this.patterns.stillness > 15) {
-            scores.playful = Math.round(scores.playful * 0.15);
-            scores.excited = Math.round(scores.excited * 0.15);
-            scores.calm += 30;
-            // Still + no audio = very likely calm or alert
-            if (!(barkData && barkData.isVocalizing)) {
+        // ── STILLNESS & MOVEMENT CONTEXT ──
+        // CRITICAL: These overrides ONLY apply when the dog is NOT vocalizing.
+        // A barking/growling/whining dog is NOT calm, even if standing still.
+        // The camera sees reality — a vocalizing dog has elevated arousal.
+        const isVocalizing = barkData && barkData.isVocalizing;
+
+        if (!isVocalizing) {
+            // Dog is SILENT — stillness and low movement indicate calm/rest
+            if (this.patterns.stillness > 15) {
+                scores.playful = Math.round(scores.playful * 0.15);
+                scores.excited = Math.round(scores.excited * 0.15);
+                scores.calm += 50; // Very still + silent = genuinely calm
+            } else if (this.patterns.stillness > 8) {
+                scores.playful = Math.round(scores.playful * 0.4);
+                scores.excited = Math.round(scores.excited * 0.4);
                 scores.calm += 20;
             }
-        } else if (this.patterns.stillness > 8) {
-            scores.playful = Math.round(scores.playful * 0.4);
-            scores.excited = Math.round(scores.excited * 0.4);
-            scores.calm += 15;
+            if (avgSpeed < 1) {
+                scores.playful = Math.round(scores.playful * 0.2);
+                scores.excited = Math.round(scores.excited * 0.2);
+                scores.happy = Math.round(scores.happy * 0.5);
+                scores.calm += 20;
+            }
+        } else {
+            // Dog IS VOCALIZING — do NOT force calm. Barking = elevated arousal.
+            // A still-but-barking dog is alert/guarding, NOT calm.
+            if (this.patterns.stillness > 10) {
+                scores.alert += 25;  // Still + barking = alert/guarding
+            }
+            // Suppress calm when vocalizing — barking dogs are never calm
+            scores.calm = Math.round(scores.calm * 0.2);
+            // Boost arousal based on bark intensity
+            if (barkData.intensity > 50) {
+                scores.excited += 15;
+                scores.alert += 10;
+            }
         }
 
-        // ── LOW MOVEMENT OVERRIDE ──
-        // If average speed is near zero, strongly favor calm/alert over active emotions
-        if (avgSpeed < 1) {
-            scores.playful = Math.round(scores.playful * 0.1);
-            scores.excited = Math.round(scores.excited * 0.1);
-            scores.happy = Math.round(scores.happy * 0.5);
-            scores.calm += 25;
+        // ── 369 ENERGY / VIBRATION / FREQUENCY INTEGRATION ──
+        // Uses micro vibrations, energy, vibration and frequency from Engine369
+        // to modulate emotional state. Higher energy = higher arousal.
+        if (this.energyState) {
+            const energy = this.energyState.energy || 0;
+            const vibLevel = this.energyState.vibrationLevel || 'minimal';
+            const trend = this.energyState.energyTrend || 'stable';
+            const harmonicScore = this.energyState.harmonicScore || 50;
+
+            // Energy-based arousal modulation
+            if (energy > 50 || vibLevel === 'intense') {
+                scores.excited += 20;
+                scores.alert += 15;
+                scores.stressed += 8;
+                scores.calm = Math.round(scores.calm * 0.3);
+            } else if (energy > 20 || vibLevel === 'high') {
+                scores.excited += 12;
+                scores.alert += 10;
+                scores.calm = Math.round(scores.calm * 0.5);
+            } else if (energy > 5 || vibLevel === 'moderate') {
+                scores.alert += 8;
+                scores.curious += 5;
+                scores.calm = Math.round(scores.calm * 0.7);
+            } else if (energy < 1 && vibLevel === 'minimal') {
+                // Very low energy supports calm state
+                scores.calm += 12;
+            }
+
+            // Energy trend modulation
+            if (trend === 'rising') {
+                scores.excited += 8;
+                scores.alert += 8;
+                scores.anxious += 5;
+            } else if (trend === 'falling') {
+                scores.calm += 8;
+            }
+
+            // High harmonic convergence amplifies the dominant emotional signal
+            if (harmonicScore > 80) {
+                const topEmotion = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
+                if (topEmotion) scores[topEmotion[0]] += 10;
+            }
         }
 
         // ── Temporal patterns ──
@@ -1199,7 +1197,8 @@ class DogEmotionEngine {
         const intensity = Math.min(100, Math.round(
             avgSpeed * 3 +
             (barkData && barkData.isVocalizing ? barkData.intensity * 0.5 : 0) +
-            this.patterns.bouncing * 5
+            this.patterns.bouncing * 5 +
+            (this.energyState ? this.energyState.energy * 2 : 0)
         ));
 
         // Raw scan readings — actual measured values from the camera
@@ -1566,6 +1565,8 @@ class DogEmotionEngine {
         this.activeActions = [];
         this.actionHistory = [];
         this.actionCounts = {};
+        // Reset 369 energy state
+        this.energyState = null;
     }
 }
 
