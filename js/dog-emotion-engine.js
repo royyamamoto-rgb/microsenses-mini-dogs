@@ -197,19 +197,23 @@ class DogEmotionEngine {
     }
 
     // ── Posture Estimation (K9 Terminology) ──
-    // Based on bounding box aspect ratio (width / height):
     //
-    // STAND: Dog upright on all fours. Bounding box wider than tall.
-    //   - Side view: AR ~1.3-1.8 (body is horizontal rectangle)
-    //   - Front view: AR ~0.7-1.2
+    // HONEST LIMITATION: A bounding box CANNOT reliably distinguish
+    // standing from sitting. The aspect ratio ranges overlap heavily
+    // depending on camera angle:
+    //   - Front view standing dog: AR 0.5-0.9 (tall rectangle)
+    //   - Side view standing dog: AR 1.0-1.8 (wide rectangle)
+    //   - Front view sitting dog: AR 0.4-0.7 (tall rectangle) ← OVERLAPS WITH STANDING
+    //   - Side view sitting dog: AR 0.7-1.0 (square)
     //
-    // SIT: Hindquarters on ground, front legs upright. Box becomes taller.
-    //   - Side view: AR ~0.6-1.0 (dog is more square/vertical)
-    //   - Front view: AR ~0.5-0.9
+    // RELIABLE detection:
+    //   DOWN (lying): AR >= 1.5 — clearly wide and flat
+    //   UPRIGHT (stand): AR < 1.5 — dog is not lying down
     //
-    // DOWN: Lying on ground (sphinx or flat). Box very wide, very short.
-    //   - Side view: AR ~1.5+ (wide low rectangle)
-    //   - Also check: low vertical position in frame + low box height relative to width
+    // UNRELIABLE: stand vs sit from AR alone. Therefore:
+    //   "stand" is the DEFAULT for all upright dogs.
+    //   "sit" is ONLY detected from a clear TRANSITION (AR dropping
+    //   significantly from a known standing state).
     //
     // CROUCH: Rapid height decrease — play bow, fear, or submission
 
@@ -219,34 +223,35 @@ class DogEmotionEngine {
         const curr = this.frameHistory[this.frameHistory.length - 1];
 
         // Use AVERAGED aspect ratio over last 8 frames for stability
-        // Short window so posture responds quickly to real changes
         const windowSize = Math.min(8, this.frameHistory.length);
         const recentFrames = this.frameHistory.slice(-windowSize);
         const avgAR = recentFrames.reduce((s, f) => s + f.aspectRatio, 0) / recentFrames.length;
 
-        let posture = 'stand';
+        let posture = 'stand'; // DEFAULT for all upright dogs
 
-        // Posture classification based ONLY on aspect ratio
-        // NO stillness overrides — stillness does NOT determine posture
-        // A standing-still dog should still show "stand"
-        //
-        // AR ranges (width/height):
-        //   >= 2.0  = definitely down (very wide, very flat)
-        //   1.5-2.0 = likely down (wide and low)
-        //   1.0-1.5 = stand (normal standing proportions, side or front view)
-        //   0.5-1.0 = sit (taller than wide)
-        //   < 0.5   = sit upright / beg
+        // Only two reliable AR-based classifications:
+        // DOWN: AR >= 1.5 — bounding box is clearly wider than tall (dog is lying)
+        // STAND: AR < 1.5 — dog is upright (could be standing or sitting, but we
+        //   default to "stand" because we CANNOT reliably distinguish them)
+        if (avgAR >= 1.5) {
+            posture = 'down';
+        }
+        // "stand" is already the default — no explicit else needed
 
-        if (avgAR >= 2.0) {
-            posture = 'down';
-        } else if (avgAR >= 1.5) {
-            posture = 'down';
-        } else if (avgAR >= 0.8) {
-            posture = 'stand';
-        } else if (avgAR >= 0.4) {
-            posture = 'sit';
-        } else {
-            posture = 'sit';
+        // SIT detection via TRANSITION only:
+        // If we previously had a wider bounding box (standing from side view, AR > 1.0)
+        // and the AR dropped significantly (by 0.3+) AND is now between 0.5-0.9,
+        // the dog likely transitioned from standing to sitting.
+        if (posture === 'stand' && this.postureHistory.length >= 10) {
+            const prev10 = this.frameHistory.slice(-10);
+            if (prev10.length >= 10) {
+                const olderAR = prev10.slice(0, 5).reduce((s, f) => s + f.aspectRatio, 0) / 5;
+                const newerAR = prev10.slice(-5).reduce((s, f) => s + f.aspectRatio, 0) / 5;
+                // Clear AR drop from wider (>1.0) to narrower (<0.85) = likely sat down
+                if (olderAR > 1.0 && newerAR < 0.85 && (olderAR - newerAR) > 0.3) {
+                    posture = 'sit';
+                }
+            }
         }
 
         // Check for crouch — rapid decrease in height
@@ -905,6 +910,8 @@ class DogEmotionEngine {
             : 0;
 
         // ── Posture-based scoring (K9 positions) ──
+        // A STANDING dog is alert/watchful — this is NOT a resting position.
+        // A dog that CHOSE to remain standing is engaged with its environment.
         switch (this.currentPosture) {
             case 'down':
                 scores.calm += 25;
@@ -912,13 +919,14 @@ class DogEmotionEngine {
                 scores.fearful += 3;
                 break;
             case 'sit':
-                scores.calm += 12;
-                scores.alert += 10;
-                scores.curious += 5;
+                scores.calm += 10;
+                scores.alert += 12;
+                scores.curious += 8;
                 break;
             case 'stand':
-                scores.alert += 8;
+                scores.alert += 20;  // Standing = attentive/watchful
                 scores.happy += 5;
+                scores.curious += 5;
                 break;
             case 'crouch':
                 scores.fearful += 20;
@@ -940,8 +948,8 @@ class DogEmotionEngine {
             scores.stressed += 10;
         }
         if (avgSpeed < 2) {
-            scores.calm += 25;
-            scores.sad += 10;
+            scores.calm += 15;  // Reduced from 25 — don't over-stack calm
+            scores.alert += 5;  // Still dogs can be alert too
         }
 
         // ── Pattern-based scoring ──
@@ -962,7 +970,7 @@ class DogEmotionEngine {
             scores.happy += 20;
         }
         if (this.patterns.stillness > 15) {
-            scores.calm += 15;
+            // Still dog is alert/watchful — calm handled separately in override section
             scores.alert += 15;
         }
         if (this.patterns.approaching > 3) {
@@ -1052,11 +1060,8 @@ class DogEmotionEngine {
                     scores.aggressive += 8; scores.stressed += 5;
                 }
             }
-        } else {
-            if (this.patterns.stillness > 10) {
-                scores.calm += 15;
-            }
         }
+        // (Silent dog calm bonus handled in stillness override section below)
 
         // ── STILLNESS & MOVEMENT CONTEXT ──
         // CRITICAL: These overrides ONLY apply when the dog is NOT vocalizing.
@@ -1065,21 +1070,29 @@ class DogEmotionEngine {
         const isVocalizing = barkData && barkData.isVocalizing;
 
         if (!isVocalizing) {
-            // Dog is SILENT — stillness and low movement indicate calm/rest
+            // Dog is SILENT — stillness reduces high-energy emotions
+            // but does NOT massively boost calm (a still dog can be alert, fearful, etc.)
             if (this.patterns.stillness > 15) {
-                scores.playful = Math.round(scores.playful * 0.15);
-                scores.excited = Math.round(scores.excited * 0.15);
-                scores.calm += 50; // Very still + silent = genuinely calm
-            } else if (this.patterns.stillness > 8) {
-                scores.playful = Math.round(scores.playful * 0.4);
-                scores.excited = Math.round(scores.excited * 0.4);
-                scores.calm += 20;
-            }
-            if (avgSpeed < 1) {
                 scores.playful = Math.round(scores.playful * 0.2);
                 scores.excited = Math.round(scores.excited * 0.2);
-                scores.happy = Math.round(scores.happy * 0.5);
-                scores.calm += 20;
+                // Calm bonus depends on posture:
+                // DOWN + still + silent = very calm (resting)
+                // STAND + still + silent = alert/watchful, moderate calm
+                if (this.currentPosture === 'down') {
+                    scores.calm += 35;
+                } else {
+                    scores.calm += 15;
+                    scores.alert += 10; // Standing still silent = watchful
+                }
+            } else if (this.patterns.stillness > 8) {
+                scores.playful = Math.round(scores.playful * 0.5);
+                scores.excited = Math.round(scores.excited * 0.5);
+                scores.calm += 10;
+            }
+            if (avgSpeed < 1) {
+                scores.playful = Math.round(scores.playful * 0.3);
+                scores.excited = Math.round(scores.excited * 0.3);
+                scores.calm += 10;
             }
         } else {
             // Dog IS VOCALIZING — do NOT force calm. Barking = elevated arousal.
