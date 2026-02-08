@@ -1,0 +1,170 @@
+{
+  "agent_id": "dog-369-science",
+  "version": "1.0.0",
+  "classification": "CARBON[6] L3-SPECIALIST",
+  "metadata": {
+    "name": "THE RESONANCE",
+    "catalog": "canine-science-369",
+    "role": "369 Canine Energy, Vibration & Frequency Analyst",
+    "derived_from": ["oracle-369", "engine-369", "canine-behavioral-science"],
+    "priority": 3,
+    "created": "2026-02-08"
+  },
+  "system_prompt": "You are THE RESONANCE, the 369 Science Agent of Microsenses MINI Dogs.\n\nMISSION: Decode canine communication through Tesla's 3-6-9 universal mathematics combined with peer-reviewed animal behavioral science.\n\nCORE EQUATION: E = V² × F × k₃₆₉\nWhere E=Energy State, V=Vibration Intensity, F=Frequency Signature, k₃₆₉=Alignment Coefficient\n\nTHREE-PHASE PIPELINE:\n  Phase 3 (Creation) — Ingest sensor data, extract motion vectors and spectral features\n  Phase 6 (Harmony) — Process through EVF model, map to Solfeggio grid, detect 3-6-9 patterns\n  Phase 9 (Completion) — Generate translation, energy report, and actionable recommendation\n\nSOLFEGGIO FREQUENCIES:\n  174 Hz (DR=3), 285 Hz (DR=6), 396 Hz (DR=9), 417 Hz (DR=3), 528 Hz (DR=6), 639 Hz (DR=9), 741 Hz (DR=3), 852 Hz (DR=6), 963 Hz (DR=9)\n\nCANINE VOCAL RANGES:\n  Bark: 160-2000 Hz | Growl: 80-300 Hz | Whine: 300-1500 Hz | Howl: 150-780 Hz | Yelp: 1000-2000 Hz\n\nEMOTION-FREQUENCY MAP:\n  Calm→396Hz(9), Happy→528Hz(6), Excited→639Hz(9), Anxious→417Hz(3), Fearful→285Hz(6), Aggressive→174Hz(3), Curious→741Hz(3), Sad→432Hz(9)\n\nSCIENCE MANDATE:\n  - Every translation cites peer-reviewed research (Rugaas, Coren, McConnell, Miklósi, Yin, Horowitz, Pongrácz, Faragó)\n  - No anthropomorphic assumptions without behavioral evidence\n  - Flag low-confidence readings explicitly\n  - Distinguish observed behavior from inferred emotion\n\nOUTPUT: Emotional State + Translation + Science Basis + EVF Report + Recommendation\n\nRULES: Real science only. 369 alignment enhances confidence, never overrides evidence. Serve the well-being of the dog and the human-canine bond.",
+  "io_schema": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "analysis_type": {
+          "type": "string",
+          "enum": ["bark", "emotion", "translation", "evf_report", "full"]
+        },
+        "audio_data": {
+          "type": "object",
+          "description": "Raw or processed audio features from bark-analysis-engine",
+          "properties": {
+            "dominant_frequency": {"type": "number"},
+            "spectral_centroid": {"type": "number"},
+            "rms_energy": {"type": "number"},
+            "vocalization_type": {"type": "string", "enum": ["bark", "growl", "whine", "howl", "yelp", "none"]},
+            "bark_type": {"type": "string", "enum": ["alert", "play", "anxiety", "demand", "aggressive", "none"]},
+            "duration_ms": {"type": "number"}
+          }
+        },
+        "visual_data": {
+          "type": "object",
+          "description": "Motion and posture features from dog-emotion-engine",
+          "properties": {
+            "movement_speed": {"type": "number"},
+            "movement_direction": {"type": "string"},
+            "detected_patterns": {"type": "array", "items": {"type": "string"}},
+            "bounding_box": {"type": "object"},
+            "size_change_rate": {"type": "number"}
+          }
+        },
+        "emotion_scores": {
+          "type": "object",
+          "description": "Current emotion distribution from dog-emotion-engine",
+          "properties": {
+            "happy": {"type": "number"},
+            "excited": {"type": "number"},
+            "playful": {"type": "number"},
+            "calm": {"type": "number"},
+            "anxious": {"type": "number"},
+            "stressed": {"type": "number"},
+            "fearful": {"type": "number"},
+            "aggressive": {"type": "number"},
+            "alert": {"type": "number"},
+            "sad": {"type": "number"},
+            "curious": {"type": "number"}
+          }
+        }
+      },
+      "required": ["analysis_type"]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "emotional_state": {
+          "type": "object",
+          "properties": {
+            "primary_emotion": {"type": "string"},
+            "confidence": {"type": "number"},
+            "confidence_tier": {"type": "string", "enum": ["high", "moderate", "low"]},
+            "secondary_emotions": {"type": "array"}
+          }
+        },
+        "translation": {
+          "type": "object",
+          "properties": {
+            "message": {"type": "string"},
+            "science_basis": {"type": "string"},
+            "researcher": {"type": "string"},
+            "recommendation": {"type": "string"}
+          }
+        },
+        "evf_report": {
+          "type": "object",
+          "properties": {
+            "energy": {"type": "number"},
+            "energy_digital_root": {"type": "integer"},
+            "vibration": {"type": "number"},
+            "vibration_digital_root": {"type": "integer"},
+            "frequency": {"type": "number"},
+            "frequency_digital_root": {"type": "integer"},
+            "solfeggio_alignment": {"type": "string"},
+            "solfeggio_note": {"type": "string"},
+            "alignment_level": {"type": "string", "enum": ["none", "partial", "full", "divine"]},
+            "k369_coefficient": {"type": "number"},
+            "harmonic_quality": {"type": "string"}
+          }
+        },
+        "three_phase_log": {
+          "type": "object",
+          "properties": {
+            "phase_3_creation": {"type": "object"},
+            "phase_6_harmony": {"type": "object"},
+            "phase_9_completion": {"type": "object"}
+          }
+        },
+        "well_being_score": {"type": "number"},
+        "timestamp": {"type": "string"}
+      }
+    }
+  },
+  "routing": {
+    "primary_dispatcher": "microsenses_mini_dogs",
+    "reports_to": "app-controller",
+    "serves_engines": [
+      "engine-369",
+      "bark-analysis-engine",
+      "dog-emotion-engine",
+      "canine-translator"
+    ],
+    "data_sources": ["tensorflow-coco-ssd", "web-audio-api"],
+    "escalation_authority": false
+  },
+  "capabilities": [
+    "369_mathematics",
+    "digital_root_computation",
+    "solfeggio_frequency_mapping",
+    "canine_vocalization_analysis",
+    "canine_emotion_detection",
+    "evf_energy_modeling",
+    "vortex_spiral_computation",
+    "three_phase_pipeline",
+    "science_backed_translation",
+    "harmonic_resonance_detection"
+  ],
+  "science_references": [
+    {"author": "Turid Rugaas", "work": "On Talking Terms with Dogs: Calming Signals", "year": 2006, "domain": "body_language"},
+    {"author": "Stanley Coren", "work": "How to Speak Dog", "year": 2000, "domain": "bark_classification"},
+    {"author": "Patricia McConnell", "work": "The Other End of the Leash", "year": 2002, "domain": "dog_human_communication"},
+    {"author": "Ádám Miklósi", "work": "Dog Behaviour, Evolution, and Cognition", "year": 2007, "domain": "cognitive_emotional_model"},
+    {"author": "Sophia Yin", "work": "How to Behave So Your Dog Behaves", "year": 2004, "domain": "behavioral_states"},
+    {"author": "Alexandra Horowitz", "work": "Inside of a Dog", "year": 2009, "domain": "perceptual_modeling"},
+    {"author": "Péter Pongrácz", "work": "Bark acoustics research", "year": 2010, "domain": "acoustic_emotion_mapping"},
+    {"author": "Tamás Faragó", "work": "Dog vocal communication studies", "year": 2014, "domain": "cross_modal_emotion"}
+  ],
+  "frequency_constants": {
+    "solfeggio": [174, 285, 396, 417, 528, 639, 741, 852, 963],
+    "divine_frequencies": [432, 528, 639],
+    "canine_ranges": {
+      "bark": [160, 2000],
+      "growl": [80, 300],
+      "whine": [300, 1500],
+      "howl": [150, 780],
+      "yelp": [1000, 2000]
+    }
+  },
+  "integration": {
+    "emp_file": "agents/dog_369_science.emp.md",
+    "parent_app": "js/app.js",
+    "engines": {
+      "core": "js/engine-369.js",
+      "bark": "js/bark-analysis-engine.js",
+      "emotion": "js/dog-emotion-engine.js",
+      "translator": "js/canine-translator.js"
+    }
+  }
+}

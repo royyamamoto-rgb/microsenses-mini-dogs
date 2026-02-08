@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Microsenses MINI Dogs — Canine Communication Translator</title>
+  <meta name="theme-color" content="#1a1a0e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <!-- Password Gate -->
+  <div class="password-gate" id="passwordGate">
+    <div class="password-card">
+      <div class="dog-logo">&#x1F43E;</div>
+      <h2>Microsenses MINI Dogs</h2>
+      <p>Canine Communication &amp; Emotion Translator</p>
+      <div class="error" id="passwordError">Incorrect password</div>
+      <input type="password" id="sitePassword" placeholder="Enter access password" autofocus>
+      <button class="auth-btn" id="passwordSubmit">Enter</button>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div class="app-wrapper" id="appWrapper">
+    <div class="header">
+      <div>
+        <h1>&#x1F43E; Microsenses MINI Dogs</h1>
+        <div class="subtitle">Canine Communication &amp; Emotion Translator &mdash; Powered by 369 Engine</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span id="modeBadge" class="mode-badge" style="display:none;"></span>
+        <button id="btn-flip" class="flip-btn" title="Flip Camera">&#x21C5; Flip</button>
+      </div>
+    </div>
+
+    <div class="main-container">
+      <!-- Left Panel - Video & Controls -->
+      <div class="video-panel">
+        <div class="video-container" id="videoContainer">
+          <video id="video" autoplay playsinline muted></video>
+          <canvas id="overlay"></canvas>
+        </div>
+
+        <div class="controls">
+          <button id="btnStart" class="btn btn-primary" disabled>&#x1F43E; Start Scan</button>
+          <button id="btnStop" class="btn btn-danger" disabled>&#9632; Stop</button>
+        </div>
+
+        <div id="statusBar" class="status-bar loading">Loading dog detection model...</div>
+
+        <div id="timerSection" class="timer-display" style="display:none;">
+          <div class="timer-value" id="timerValue">0:00</div>
+        </div>
+
+        <!-- Translation Display (always visible during scan) -->
+        <div id="translationPanel" class="translation-panel" style="display:none;">
+          <div class="translation-header">
+            <span class="translation-icon">&#x1F4AC;</span>
+            <span class="translation-label">YOUR DOG IS SAYING:</span>
+          </div>
+          <div class="translation-message" id="translationMessage">Observing your dog...</div>
+          <div class="translation-science" id="translationScience"></div>
+          <div class="translation-recommendation" id="translationRecommendation"></div>
+          <div class="translation-confidence" id="translationConfidence"></div>
+        </div>
+
+        <!-- Real-time Emotion Metrics -->
+        <div class="realtime-metrics" id="emotionMetrics" style="display:none;">
+          <div class="metric-card emotion-primary">
+            <div class="label">Emotion</div>
+            <div class="value" id="rtEmotion">--</div>
+          </div>
+          <div class="metric-card emotion-confidence">
+            <div class="label">Confidence</div>
+            <div class="value" id="rtConfidence">--</div>
+          </div>
+          <div class="metric-card emotion-intensity">
+            <div class="label">Intensity</div>
+            <div class="value" id="rtIntensity">--</div>
+          </div>
+        </div>
+
+        <!-- 369 Energy Metrics -->
+        <div class="realtime-metrics" id="energyMetrics" style="display:none;">
+          <div class="metric-card energy">
+            <div class="label">Energy (E)</div>
+            <div class="value" id="rtEnergy">--</div>
+          </div>
+          <div class="metric-card vibration">
+            <div class="label">Vibration (V)</div>
+            <div class="value" id="rtVibration">--</div>
+          </div>
+          <div class="metric-card frequency">
+            <div class="label">Frequency (F)</div>
+            <div class="value" id="rtFrequency">--</div>
+          </div>
+        </div>
+
+        <div class="formula-box" id="formulaBox" style="display:none;">
+          <strong style="color:#d4a017;">E = V&sup2; &times; F &times; k<sub>369</sub></strong><br>
+          369 Energy reflects canine vibrational state. Higher values indicate increased emotional activation.
+        </div>
+
+        <!-- Bark Status -->
+        <div id="barkStatus" class="bark-status" style="display:none;">
+          <span class="bark-icon" id="barkIcon">&#x1F3A4;</span>
+          <span class="bark-text" id="barkText">Microphone: Initializing...</span>
+        </div>
+
+        <!-- Real-time Vibration Chart -->
+        <div id="chartSection" style="display:none; margin-top:12px;">
+          <div style="font-size:11px;color:#888;margin-bottom:8px;">Real-time Energy Flow</div>
+          <canvas id="realtimeChart" style="width:100%;height:80px;background:#1e2a1f;border-radius:8px;"></canvas>
+        </div>
+
+        <!-- Live Indicators -->
+        <div id="liveIndicators" class="live-indicators" style="display:none;">
+          <div style="font-size:11px;color:#888;margin-bottom:6px;letter-spacing:1px;">LIVE SIGNALS</div>
+          <div id="indicatorChips" class="indicator-chips"></div>
+        </div>
+      </div>
+
+      <!-- Right Panel - Results Report -->
+      <div class="results-panel" id="resultsPanel">
+        <div class="report-header">
+          <div class="report-title" id="reportTitle">Canine Communication Analysis Report</div>
+          <div class="report-subtitle" id="reportSubtitle">Comprehensive Behavioral &amp; Emotional Assessment</div>
+        </div>
+
+        <!-- Emotion Summary -->
+        <div id="emotionResultsSection"></div>
+
+        <!-- Translation Report -->
+        <div id="translationResultsSection"></div>
+
+        <!-- Bark Analysis Results -->
+        <div id="barkResultsSection"></div>
+
+        <!-- 369 Energy Report -->
+        <div id="energyResultsSection"></div>
+
+        <!-- Scan Info -->
+        <div class="scan-info">
+          <div class="scan-info-item">
+            <div class="scan-info-label">Duration</div>
+            <div class="scan-info-value" id="scanDurationDisplay">--</div>
+          </div>
+          <div class="scan-info-item">
+            <div class="scan-info-label">Frames</div>
+            <div class="scan-info-value" id="scanFrames">--</div>
+          </div>
+          <div class="scan-info-item">
+            <div class="scan-info-label">Detections</div>
+            <div class="scan-info-value" id="scanDetections">--</div>
+          </div>
+          <div class="scan-info-item">
+            <div class="scan-info-label">369 Cycles</div>
+            <div class="scan-info-value" id="scanCycles">--</div>
+          </div>
+        </div>
+
+        <!-- Disclaimer -->
+        <div class="disclaimer">
+          BEHAVIORAL INDICATORS ONLY — Translations are based on published canine behavioral science.
+          Every dog is unique. Consult a certified animal behaviorist for persistent behavioral concerns.
+        </div>
+
+        <!-- Actions -->
+        <div class="report-actions">
+          <button id="btnNewScan" class="btn btn-secondary">New Scan</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Password Gate Logic -->
+  <script>
+  (function() {
+    const SITE_PASSWORD = 'microsenses2024';
+    const passwordGate = document.getElementById('passwordGate');
+    const appWrapper = document.getElementById('appWrapper');
+    const passwordInput = document.getElementById('sitePassword');
+    const passwordSubmit = document.getElementById('passwordSubmit');
+    const passwordError = document.getElementById('passwordError');
+
+    if (sessionStorage.getItem('siteAuth') === 'true') {
+      passwordGate.classList.add('hidden');
+      appWrapper.classList.add('authenticated');
+    }
+
+    function checkPassword() {
+      if (passwordInput.value === SITE_PASSWORD) {
+        sessionStorage.setItem('siteAuth', 'true');
+        passwordGate.classList.add('hidden');
+        appWrapper.classList.add('authenticated');
+      } else {
+        passwordError.classList.add('show');
+        passwordInput.value = '';
+        passwordInput.focus();
+      }
+    }
+
+    passwordSubmit.addEventListener('click', checkPassword);
+    passwordInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') checkPassword();
+    });
+  })();
+  </script>
+
+  <!-- TensorFlow.js + COCO-SSD for dog detection -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+
+  <!-- App modules -->
+  <script src="js/engine-369.js"></script>
+  <script src="js/bark-analysis-engine.js"></script>
+  <script src="js/dog-emotion-engine.js"></script>
+  <script src="js/canine-translator.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
