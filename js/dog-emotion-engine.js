@@ -289,58 +289,120 @@ class DogEmotionEngine {
         const curr = this.frameHistory[this.frameHistory.length - 1];
         const hasPrev = this.frameHistory.length >= 2;
         const prev = hasPrev ? this.frameHistory[this.frameHistory.length - 2] : null;
+        const isStill = this.patterns.stillness > 5;
+        const isVeryStill = this.patterns.stillness > 15;
+
+        // ═══════════════════════════════════════════
+        // STILLNESS GATE — If the dog is still, only report
+        // posture + rest + vocalization. Do NOT infer actions
+        // from bounding box jitter on a still dog.
+        // ═══════════════════════════════════════════
+
+        if (isVeryStill) {
+            // Dog is genuinely still — only report posture and rest state
+            switch (this.currentPosture) {
+                case 'stand':
+                    actions.push({ action: 'standing', category: 'posture', desc: 'Upright on all four paws' });
+                    actions.push({ action: 'stationary', category: 'locomotion', desc: 'Holding position, not moving' });
+                    if (this.patterns.stillness > 20) {
+                        actions.push({ action: 'guarding', category: 'pattern', desc: 'Alert guard stance — standing still and watching intently' });
+                    }
+                    break;
+                case 'sit':
+                    actions.push({ action: 'sitting', category: 'posture', desc: 'In a sit — hindquarters on ground' });
+                    actions.push({ action: 'stationary', category: 'locomotion', desc: 'Holding position, not moving' });
+                    break;
+                case 'down':
+                    actions.push({ action: 'lying-down', category: 'posture', desc: 'In a down position — body on the ground' });
+                    actions.push({ action: 'stationary', category: 'locomotion', desc: 'Holding position, not moving' });
+                    if (this.patterns.stillness > 25) {
+                        actions.push({ action: 'resting', category: 'rest', desc: 'Resting quietly — settled and comfortable' });
+                    }
+                    if (this.patterns.stillness > 50) {
+                        actions.push({ action: 'sleeping', category: 'rest', desc: 'Possibly sleeping — very still for extended period' });
+                    }
+                    break;
+                case 'crouch':
+                    actions.push({ action: 'crouching', category: 'posture', desc: 'Body lowered — play bow, submission, or caution' });
+                    if (this.patterns.retreating > 2) {
+                        actions.push({ action: 'cowering', category: 'stress', desc: 'Cowering — crouched low and backing away, fearful' });
+                    }
+                    actions.push({ action: 'freezing-fearful', category: 'stress', desc: 'Fear freeze — crouched and completely still' });
+                    break;
+            }
+
+            // Still dogs can still vocalize
+            if (barkData && barkData.isVocalizing) {
+                const vocalActions = {
+                    bark: { action: 'barking', desc: 'Barking — communicating vocally' },
+                    growl: { action: 'growling', desc: 'Growling — warning or discomfort' },
+                    whine: { action: 'whining', desc: 'Whining — wants something or in distress' },
+                    howl: { action: 'howling', desc: 'Howling — social call or responding to sounds' },
+                    yelp: { action: 'yelping', desc: 'Yelping — pain or surprise' }
+                };
+                const va = vocalActions[barkData.currentType];
+                if (va) actions.push({ action: va.action, category: 'vocalization', desc: va.desc });
+            }
+
+            // Skip all other action detection — dog is still
+            this._finalizeActions(actions);
+            return;
+        }
 
         // ═══════════════════════════════════════════
         // LOCOMOTION — How the dog is moving
+        // Raised thresholds: noise floor is 6px, so avgSpeed < 2
+        // is likely just residual jitter, not real movement
         // ═══════════════════════════════════════════
 
-        if (avgSpeed < 0.5) {
+        if (avgSpeed < 2) {
             actions.push({ action: 'stationary', category: 'locomotion', desc: 'Holding position, not moving' });
-        } else if (avgSpeed >= 0.5 && avgSpeed < 3) {
+        } else if (avgSpeed >= 2 && avgSpeed < 5) {
             actions.push({ action: 'slow-movement', category: 'locomotion', desc: 'Shifting weight or making small adjustments' });
-        } else if (avgSpeed >= 3 && avgSpeed < 7) {
+        } else if (avgSpeed >= 5 && avgSpeed < 10) {
             actions.push({ action: 'walking', category: 'locomotion', desc: 'Walking at a normal pace' });
-        } else if (avgSpeed >= 7 && avgSpeed < 14) {
+        } else if (avgSpeed >= 10 && avgSpeed < 18) {
             actions.push({ action: 'trotting', category: 'locomotion', desc: 'Moving at a trot — moderate speed gait' });
-        } else if (avgSpeed >= 14 && avgSpeed < 25) {
+        } else if (avgSpeed >= 18 && avgSpeed < 30) {
             actions.push({ action: 'running', category: 'locomotion', desc: 'Running at speed' });
-        } else if (avgSpeed >= 25) {
+        } else if (avgSpeed >= 30) {
             actions.push({ action: 'sprinting', category: 'locomotion', desc: 'Full sprint — maximum speed' });
         }
 
-        // Direction of travel
-        if (avgSpeed > 2) {
+        // Direction of travel — require real movement
+        if (avgSpeed > 5) {
             const avgDx = recentMoves.reduce((s, m) => s + (m.dx || 0), 0) / recentMoves.length;
             const avgDy = recentMoves.reduce((s, m) => s + (m.dy || 0), 0) / recentMoves.length;
-            if (Math.abs(avgDx) > Math.abs(avgDy)) {
+            if (Math.abs(avgDx) > Math.abs(avgDy) && Math.abs(avgDx) > 3) {
                 actions.push({ action: avgDx > 0 ? 'moving-right' : 'moving-left', category: 'direction', desc: `Heading ${avgDx > 0 ? 'right' : 'left'}` });
-            } else if (Math.abs(avgDy) > 2) {
+            } else if (Math.abs(avgDy) > 3) {
                 actions.push({ action: avgDy > 0 ? 'moving-away' : 'moving-toward', category: 'direction', desc: avgDy > 0 ? 'Moving downward in frame' : 'Moving upward in frame' });
             }
         }
 
         // ═══════════════════════════════════════════
         // JUMPING & VERTICAL ACTIONS
+        // Require real movement, not jitter
         // ═══════════════════════════════════════════
 
-        if (movement.dy < -12 && movement.acceleration > 8) {
+        if (!isStill && movement.dy < -15 && movement.acceleration > 10) {
             actions.push({ action: 'jumping-up', category: 'jumping', desc: 'Jumping upward — excitement, greeting, or reaching' });
         }
-        if (movement.dy > 12 && this.movementHistory.length > 2) {
+        if (!isStill && movement.dy > 15 && this.movementHistory.length > 2) {
             const prev2 = this.movementHistory[this.movementHistory.length - 2];
-            if (prev2 && prev2.dy < -5) {
+            if (prev2 && prev2.dy < -8) {
                 actions.push({ action: 'landing', category: 'jumping', desc: 'Landing after a jump' });
             }
         }
-        if (this.patterns.bouncing > 4) {
+        if (this.patterns.bouncing > 6) {
             actions.push({ action: 'bouncing', category: 'jumping', desc: 'Bouncing up and down — playful or excited' });
         }
-        if (this.patterns.jumping > 2) {
+        if (this.patterns.jumping > 3) {
             actions.push({ action: 'repeated-jumping', category: 'jumping', desc: 'Jumping repeatedly — wants attention or very excited' });
         }
 
-        // Hop detection (small quick jumps)
-        if (movement.verticalOscillation > 0 && avgSpeed > 3 && avgSpeed < 12) {
+        // Hop detection — require real movement
+        if (movement.verticalOscillation > 1 && avgSpeed > 5 && avgSpeed < 15) {
             actions.push({ action: 'hopping', category: 'jumping', desc: 'Hopping — light bouncy movement, often playful' });
         }
 
@@ -363,7 +425,7 @@ class DogEmotionEngine {
                 break;
         }
 
-        // Posture transitions
+        // Posture transitions — only when posture actually changed
         if (this.postureHistory.length >= 2) {
             const prevP = this.postureHistory[this.postureHistory.length - 2];
             const currP = this.postureHistory[this.postureHistory.length - 1];
@@ -390,140 +452,140 @@ class DogEmotionEngine {
         }
 
         // ═══════════════════════════════════════════
-        // SPATIAL BEHAVIOR — Relation to camera/owner
+        // SPATIAL BEHAVIOR — Require significant pattern counts
         // ═══════════════════════════════════════════
 
-        if (this.patterns.approaching > 3) {
+        if (this.patterns.approaching > 5) {
             actions.push({ action: 'approaching', category: 'spatial', desc: 'Coming closer — seeking attention or interaction' });
         }
-        if (this.patterns.retreating > 3) {
+        if (this.patterns.retreating > 5) {
             actions.push({ action: 'retreating', category: 'spatial', desc: 'Moving away — avoidance or discomfort' });
         }
 
-        // Lunging — sudden forward burst (rapid size increase + speed)
-        if (hasPrev && movement.sizeChange > 0.05 && speed > 10) {
+        // Lunging — require strong signal
+        if (hasPrev && movement.sizeChange > 0.08 && speed > 12) {
             actions.push({ action: 'lunging', category: 'spatial', desc: 'Sudden forward lunge — could be reactive or playful' });
         }
 
-        // Backing up — slow retreat
-        if (movement.sizeChange < -0.01 && avgSpeed > 1 && avgSpeed < 5) {
+        // Backing up — require clear retreat
+        if (movement.sizeChange < -0.02 && avgSpeed > 3 && avgSpeed < 8) {
             actions.push({ action: 'backing-up', category: 'spatial', desc: 'Slowly backing away' });
         }
 
-        // Following / tracking — sustained one-direction movement
-        if (recentMoves.length >= 10) {
-            const sameDir = recentMoves.slice(-10).filter(m => m.direction === movement.direction && m.speed > 2).length;
+        // Following / tracking — require sustained movement
+        if (recentMoves.length >= 10 && avgSpeed > 3) {
+            const sameDir = recentMoves.slice(-10).filter(m => m.direction === movement.direction && m.speed > 4).length;
             if (sameDir >= 7) {
                 actions.push({ action: 'following', category: 'spatial', desc: 'Moving in a consistent direction — following or tracking something' });
             }
         }
 
         // ═══════════════════════════════════════════
-        // PLAY ACTIONS
+        // PLAY ACTIONS — Require real movement
         // ═══════════════════════════════════════════
 
-        if (this.patterns.playBows > 0) {
+        if (this.patterns.playBows > 0 && !isStill) {
             actions.push({ action: 'play-bow', category: 'play', desc: 'Play bow! Front down, rear up — universal "let\'s play!" invitation' });
         }
 
         // Zoomies — high speed + erratic direction changes
-        if (avgSpeed > 15 && this.patterns.spinning > 0) {
+        if (avgSpeed > 18 && this.patterns.spinning > 0) {
             actions.push({ action: 'zoomies', category: 'play', desc: 'ZOOMIES! Running wildly in circles — pure joy and energy release' });
-        } else if (avgSpeed > 18) {
-            const dirChanges = recentMoves.filter((m, i) => i > 0 && m.direction !== recentMoves[i - 1].direction && m.speed > 8).length;
+        } else if (avgSpeed > 22) {
+            const dirChanges = recentMoves.filter((m, i) => i > 0 && m.direction !== recentMoves[i - 1].direction && m.speed > 10).length;
             if (dirChanges > 4) {
                 actions.push({ action: 'zoomies', category: 'play', desc: 'ZOOMIES! Erratic high-speed running — excited energy burst' });
             }
         }
 
-        // Play chase (running with direction changes)
-        if (avgSpeed > 10 && this.patterns.pacing > 0) {
+        // Play chase
+        if (avgSpeed > 12 && this.patterns.pacing > 0) {
             actions.push({ action: 'chase-play', category: 'play', desc: 'Chase behavior — running back and forth playfully' });
         }
 
-        // Pounce (sudden forward + downward)
-        if (movement.dy > 8 && movement.sizeChange > 0.03 && speed > 8) {
+        // Pounce
+        if (movement.dy > 10 && movement.sizeChange > 0.05 && speed > 10) {
             actions.push({ action: 'pouncing', category: 'play', desc: 'Pouncing forward — playful attack or catching something' });
         }
 
         // ═══════════════════════════════════════════
-        // BODY ACTIONS
+        // BODY ACTIONS — Require real movement, not jitter
         // ═══════════════════════════════════════════
 
-        // Shaking off — rapid whole-body oscillation (size and position flutter rapidly)
-        if (recentMoves.length >= 6) {
+        // Shaking off — require strong oscillation
+        if (!isStill && recentMoves.length >= 6) {
             const recent6 = recentMoves.slice(-6);
-            const sizeOsc = recent6.filter((m, i) => i > 0 && Math.sign(m.sizeChange) !== Math.sign(recent6[i - 1].sizeChange) && Math.abs(m.sizeChange) > 0.005).length;
-            const posOsc = recent6.filter((m, i) => i > 0 && Math.sign(m.dx) !== Math.sign(recent6[i - 1].dx) && Math.abs(m.dx) > 3).length;
-            if (sizeOsc >= 3 && posOsc >= 2) {
+            const sizeOsc = recent6.filter((m, i) => i > 0 && Math.sign(m.sizeChange) !== Math.sign(recent6[i - 1].sizeChange) && Math.abs(m.sizeChange) > 0.01).length;
+            const posOsc = recent6.filter((m, i) => i > 0 && Math.sign(m.dx) !== Math.sign(recent6[i - 1].dx) && Math.abs(m.dx) > 6).length;
+            if (sizeOsc >= 3 && posOsc >= 3) {
                 actions.push({ action: 'shaking-off', category: 'body', desc: 'Shaking off — full body shake, often after stress or getting wet' });
             }
         }
 
-        // Rolling — rapid aspect ratio change + vertical movement
-        if (recentMoves.length >= 5) {
+        // Rolling — require large AR changes
+        if (!isStill && recentMoves.length >= 5) {
             const recent5 = this.frameHistory.slice(-5);
             if (recent5.length >= 5) {
                 const arChanges = [];
                 for (let i = 1; i < recent5.length; i++) {
                     arChanges.push(Math.abs(recent5[i].aspectRatio - recent5[i - 1].aspectRatio));
                 }
-                const bigARChanges = arChanges.filter(c => c > 0.3).length;
-                if (bigARChanges >= 2 && movement.verticalOscillation > 0) {
+                const bigARChanges = arChanges.filter(c => c > 0.5).length;
+                if (bigARChanges >= 2 && movement.verticalOscillation > 1) {
                     actions.push({ action: 'rolling', category: 'body', desc: 'Rolling over — playful, scratching back, or showing belly' });
                 }
             }
         }
 
-        // Stretching — temporary size increase then return
-        if (this.frameHistory.length >= 10) {
+        // Stretching — require large size change
+        if (!isStill && this.frameHistory.length >= 10) {
             const recent10 = this.frameHistory.slice(-10);
             const areas = recent10.map(f => f.area);
             const maxArea = Math.max(...areas);
             const minArea = Math.min(...areas);
-            if (maxArea > minArea * 1.3 && curr.area < maxArea * 0.9 && avgSpeed < 3) {
+            if (maxArea > minArea * 1.5 && curr.area < maxArea * 0.85 && avgSpeed < 3) {
                 actions.push({ action: 'stretching', category: 'body', desc: 'Stretching out — loosening up after rest' });
             }
         }
 
-        // Digging — rapid small vertical movements while mostly stationary horizontally
-        if (recentMoves.length >= 8) {
+        // Digging — require clear vertical action
+        if (!isStill && recentMoves.length >= 8) {
             const recent8 = recentMoves.slice(-8);
-            const vertActivity = recent8.filter(m => Math.abs(m.dy) > 3).length;
-            const horizActivity = recent8.filter(m => Math.abs(m.dx) > 5).length;
-            if (vertActivity >= 4 && horizActivity <= 2 && avgSpeed < 6) {
+            const vertActivity = recent8.filter(m => Math.abs(m.dy) > 8).length;
+            const horizActivity = recent8.filter(m => Math.abs(m.dx) > 8).length;
+            if (vertActivity >= 4 && horizActivity <= 1 && avgSpeed < 8) {
                 actions.push({ action: 'digging', category: 'body', desc: 'Digging motion — pawing at something' });
             }
         }
 
-        // Crawling — low position + slow forward movement
-        if (this.currentPosture === 'down' && avgSpeed > 1 && avgSpeed < 5) {
+        // Crawling — require clear forward movement while down
+        if (this.currentPosture === 'down' && avgSpeed > 3 && avgSpeed < 8) {
             actions.push({ action: 'crawling', category: 'body', desc: 'Crawling / army crawl — low to the ground and moving slowly' });
         }
 
-        // Scratching — localized rapid oscillation without travel
-        if (recentMoves.length >= 6) {
-            const recent6 = recentMoves.slice(-6);
-            const smallOsc = recent6.filter(m => m.speed > 1 && m.speed < 5).length;
-            const noTravel = recent6.every(m => m.speed < 6);
-            const hasOsc = recent6.filter((m, i) => i > 0 && Math.sign(m.dy) !== Math.sign(recent6[i - 1].dy)).length;
-            if (smallOsc >= 4 && noTravel && hasOsc >= 3) {
+        // Scratching — require strong repeated oscillation
+        if (!isStill && recentMoves.length >= 8) {
+            const recent8 = recentMoves.slice(-8);
+            const oscCount = recent8.filter(m => m.speed > 3 && m.speed < 8).length;
+            const noTravel = recent8.every(m => m.speed < 10);
+            const hasOsc = recent8.filter((m, i) => i > 0 && Math.sign(m.dy) !== Math.sign(recent8[i - 1].dy) && Math.abs(m.dy) > 3).length;
+            if (oscCount >= 5 && noTravel && hasOsc >= 4) {
                 actions.push({ action: 'scratching', category: 'body', desc: 'Scratching — repetitive localized movement' });
             }
         }
 
         // ═══════════════════════════════════════════
-        // HEAD & ATTENTION ACTIONS
+        // HEAD & ATTENTION ACTIONS — Require stronger signals
         // ═══════════════════════════════════════════
 
-        if (this.patterns.headTilts > 2) {
+        if (this.patterns.headTilts > 4) {
             actions.push({ action: 'head-tilting', category: 'attention', desc: 'Tilting head — processing a sound or trying to understand' });
         }
 
-        // Alert freeze — sudden stop after movement
-        if (this.movementHistory.length >= 5) {
-            const prev5speeds = this.movementHistory.slice(-5).map(m => m.speed);
-            if (prev5speeds[0] > 5 && prev5speeds[1] > 5 && prev5speeds[3] < 1 && prev5speeds[4] < 1) {
+        // Alert freeze — sudden stop after real movement
+        if (this.movementHistory.length >= 6) {
+            const prev6speeds = this.movementHistory.slice(-6).map(m => m.speed);
+            if (prev6speeds[0] > 8 && prev6speeds[1] > 8 && prev6speeds[4] < 1 && prev6speeds[5] < 1) {
                 actions.push({ action: 'freeze', category: 'attention', desc: 'Alert freeze — suddenly stopped and locked on something' });
             }
         }
@@ -531,23 +593,23 @@ class DogEmotionEngine {
         // Startle — sudden movement after stillness
         if (this.movementHistory.length >= 5) {
             const prev5speeds = this.movementHistory.slice(-5).map(m => m.speed);
-            if (prev5speeds[0] < 1 && prev5speeds[1] < 1 && prev5speeds[3] > 10) {
+            if (prev5speeds[0] < 1 && prev5speeds[1] < 1 && prev5speeds[3] > 12) {
                 actions.push({ action: 'startled', category: 'attention', desc: 'Startle response — reacted suddenly to something' });
             }
         }
 
-        // Sniffing — small forward movements with low position
-        if (avgSpeed > 0.5 && avgSpeed < 4 && this.currentPosture === 'stand') {
-            const smallMoves = recentMoves.filter(m => m.speed > 0.5 && m.speed < 4).length;
-            if (smallMoves > 10 && recentMoves.length >= 12) {
+        // Sniffing — require clear slow deliberate movement while standing
+        if (avgSpeed > 2 && avgSpeed < 6 && this.currentPosture === 'stand' && !isStill) {
+            const smallMoves = recentMoves.filter(m => m.speed > 2 && m.speed < 6).length;
+            if (smallMoves > 12 && recentMoves.length >= 15) {
                 actions.push({ action: 'sniffing', category: 'attention', desc: 'Slow deliberate movement — likely sniffing and exploring' });
             }
         }
 
-        // Looking around — small lateral movements while mostly still
-        if (avgSpeed < 3 && this.patterns.stillness < 10) {
-            const lateralOsc = recentMoves.filter((m, i) => i > 0 && Math.sign(m.dx) !== Math.sign(recentMoves[i - 1].dx) && Math.abs(m.dx) > 1).length;
-            if (lateralOsc >= 3) {
+        // Looking around — require clear lateral oscillation, NOT jitter
+        if (avgSpeed > 1 && avgSpeed < 5 && !isStill) {
+            const lateralOsc = recentMoves.filter((m, i) => i > 0 && Math.sign(m.dx) !== Math.sign(recentMoves[i - 1].dx) && Math.abs(m.dx) > 4).length;
+            if (lateralOsc >= 4) {
                 actions.push({ action: 'looking-around', category: 'attention', desc: 'Looking around — scanning the environment' });
             }
         }
@@ -556,17 +618,17 @@ class DogEmotionEngine {
         // REPETITIVE / BEHAVIORAL PATTERNS
         // ═══════════════════════════════════════════
 
-        if (this.patterns.spinning > 0) {
+        if (this.patterns.spinning > 0 && !isStill) {
             actions.push({ action: 'spinning', category: 'pattern', desc: 'Spinning in circles' });
         }
-        if (this.patterns.pacing > 3) {
+        if (this.patterns.pacing > 5) {
             actions.push({ action: 'pacing', category: 'pattern', desc: 'Pacing back and forth — anxious or needs something' });
         }
-        if (this.patterns.restlessness > 5) {
+        if (this.patterns.restlessness > 8) {
             actions.push({ action: 'restless', category: 'pattern', desc: 'Restless — can\'t settle, keeps changing position' });
         }
 
-        // Settling sequence — circling then lying down
+        // Settling sequence
         if (this.postureHistory.length >= 5) {
             const recent5p = this.postureHistory.slice(-5);
             const wasStanding = recent5p.slice(0, 3).some(p => p.posture === 'stand');
@@ -576,18 +638,18 @@ class DogEmotionEngine {
             }
         }
 
-        // Guard posture — still, standing, facing one direction
-        if (this.currentPosture === 'stand' && this.patterns.stillness > 15 && avgSpeed < 1) {
+        // Guard posture
+        if (this.currentPosture === 'stand' && isVeryStill && avgSpeed < 1) {
             actions.push({ action: 'guarding', category: 'pattern', desc: 'Alert guard stance — standing still and watching intently' });
         }
 
         // ═══════════════════════════════════════════
-        // TAIL ACTIONS (from edge analysis)
+        // TAIL ACTIONS — Require strong signal
         // ═══════════════════════════════════════════
 
-        if (this.patterns.tailWagLikely > 6) {
+        if (this.patterns.tailWagLikely > 8) {
             actions.push({ action: 'tail-wagging-fast', category: 'tail', desc: 'Fast tail wagging — very happy or excited' });
-        } else if (this.patterns.tailWagLikely > 3) {
+        } else if (this.patterns.tailWagLikely > 5) {
             actions.push({ action: 'tail-wagging', category: 'tail', desc: 'Tail wagging detected — generally positive signal' });
         }
 
@@ -595,7 +657,7 @@ class DogEmotionEngine {
         // STRESS & ANXIETY ACTIONS
         // ═══════════════════════════════════════════
 
-        if (this.currentPosture === 'crouch' && this.patterns.retreating > 2) {
+        if (this.currentPosture === 'crouch' && this.patterns.retreating > 3) {
             actions.push({ action: 'cowering', category: 'stress', desc: 'Cowering — crouched low and backing away, fearful' });
         }
         if (this.patterns.stillness > 25 && this.currentPosture === 'crouch') {
@@ -638,12 +700,16 @@ class DogEmotionEngine {
             actions.push({ action: 'sleeping', category: 'rest', desc: 'Possibly sleeping — very still for extended period' });
         }
 
+        this._finalizeActions(actions);
+    }
+
+    _finalizeActions(actions) {
         // ═══════════════════════════════════════════
         // DETERMINE PRIMARY ACTION
         // ═══════════════════════════════════════════
 
-        // Priority: vocalization > jumping > play > body > locomotion > posture > rest
-        const priorityOrder = ['vocalization', 'jumping', 'play', 'stress', 'body', 'transition', 'attention', 'pattern', 'spatial', 'locomotion', 'posture', 'tail', 'rest', 'direction'];
+        // Priority: vocalization > jumping > play > stress > body > transition > attention > rest > pattern > spatial > posture > locomotion
+        const priorityOrder = ['vocalization', 'jumping', 'play', 'stress', 'body', 'transition', 'attention', 'rest', 'pattern', 'spatial', 'posture', 'locomotion', 'tail', 'direction'];
         let primary = actions.length > 0 ? actions[0] : { action: 'observing', category: 'system', desc: 'Waiting for detectable activity' };
 
         for (const cat of priorityOrder) {
